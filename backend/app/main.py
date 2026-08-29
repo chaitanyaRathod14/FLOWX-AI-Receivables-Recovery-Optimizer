@@ -33,7 +33,7 @@ DB_PATH = os.getenv(
     "FLOWX_DB",
     os.path.join(os.path.dirname(__file__), "flowx.db"),
 )
-
+print("USING DATABASE FILE:", os.path.abspath(DB_PATH))
 JWT_SECRET = os.getenv(
     "FLOWX_JWT_SECRET",
     "flowx-local-development-secret-change-me",
@@ -4186,3 +4186,53 @@ def run_demo(
         "seeded":
             seeded,
     }
+
+
+
+# ============================================================
+# RECOVERY ACTIONS
+# ============================================================
+
+@app.get("/recovery")
+def recovery_actions(
+    user: sqlite3.Row = Depends(
+        current_user
+    ),
+) -> list[dict[str, Any]]:
+
+    connection = db()
+
+    try:
+        rows = connection.execute(
+            """
+            SELECT
+                a.*,
+                i.invoice_number,
+                i.amount AS invoice_amount,
+                i.paid_amount,
+                i.due_date,
+                i.status AS invoice_status,
+                i.risk_tier,
+                i.risk_probability,
+                c.name AS customer_name,
+                c.email AS customer_email
+            FROM recovery_actions a
+            JOIN invoices i
+                ON i.id = a.invoice_id
+            JOIN customers c
+                ON c.id = i.customer_id
+            WHERE a.merchant_id = ?
+            ORDER BY a.created_at DESC
+            """,
+            (
+                user["merchant_id"],
+            ),
+        ).fetchall()
+
+        return [
+            dict(row)
+            for row in rows
+        ]
+
+    finally:
+        connection.close()
