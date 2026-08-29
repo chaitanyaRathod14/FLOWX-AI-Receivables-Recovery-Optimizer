@@ -3,6 +3,10 @@ const RAW_API_URL =
 
 const API_URL = RAW_API_URL.replace(/\/+$/, "");
 
+/* =========================================================
+   TYPES
+   ========================================================= */
+
 export type User = {
   id: string;
   email: string;
@@ -105,50 +109,150 @@ export type DashboardData = {
 };
 
 /* =========================================================
-   Common API request helper
+   SESSION HELPERS
+   ========================================================= */
+
+const TOKEN_KEY = "flowx_token";
+const USER_KEY = "flowx_user";
+const SESSION_COOKIE = "flowx_session";
+
+function getToken(): string | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  return localStorage.getItem(TOKEN_KEY);
+}
+
+function setSession(
+  token: string,
+  user: User
+): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  localStorage.setItem(
+    TOKEN_KEY,
+    token
+  );
+
+  localStorage.setItem(
+    USER_KEY,
+    JSON.stringify(user)
+  );
+
+  /*
+   * This cookie is only used by Next.js proxy.ts
+   * to know that the browser has an authenticated session.
+   *
+   * Actual API authentication is still done using
+   * the JWT stored in localStorage.
+   */
+  document.cookie =
+    `${SESSION_COOKIE}=1; ` +
+    `Max-Age=${60 * 60 * 24 * 7}; ` +
+    `Path=/; ` +
+    `SameSite=Lax`;
+}
+
+function clearSession(): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  localStorage.removeItem(TOKEN_KEY);
+  localStorage.removeItem(USER_KEY);
+
+  document.cookie =
+    `${SESSION_COOKIE}=; ` +
+    `Max-Age=0; ` +
+    `Path=/; ` +
+    `SameSite=Lax`;
+}
+
+/* =========================================================
+   COMMON API REQUEST HELPER
    ========================================================= */
 
 async function request<T>(
   path: string,
   init?: RequestInit
 ): Promise<T> {
-  const token =
-    typeof window !== "undefined"
-      ? localStorage.getItem("flowx_token")
-      : null;
 
-  const headers = new Headers(init?.headers);
+  const token = getToken();
 
+  const headers = new Headers(
+    init?.headers
+  );
+
+  /*
+   * Do not set JSON content type for FormData.
+   */
   if (!(init?.body instanceof FormData)) {
-    headers.set("Content-Type", "application/json");
+    headers.set(
+      "Content-Type",
+      "application/json"
+    );
   }
 
+  /*
+   * Attach JWT to every authenticated API request.
+   */
   if (token) {
-    headers.set("Authorization", `Bearer ${token}`);
+    headers.set(
+      "Authorization",
+      `Bearer ${token}`
+    );
   }
 
-  const response = await fetch(`${API_URL}${path}`, {
-    ...init,
-    headers,
-  });
+  const response = await fetch(
+    `${API_URL}${path}`,
+    {
+      ...init,
+      headers,
+    }
+  );
 
-  if (response.status === 401 && typeof window !== "undefined") {
-    logout();
+  /*
+   * Backend rejected the JWT.
+   *
+   * This usually means:
+   * 1. Token expired
+   * 2. FLOWX_JWT_SECRET changed
+   * 3. Token is malformed
+   * 4. User was deleted/deactivated
+   */
+  if (
+    response.status === 401 &&
+    typeof window !== "undefined"
+  ) {
+
+    clearSession();
+
+    const currentPath =
+      window.location.pathname;
 
     if (
-      !window.location.pathname.startsWith("/login") &&
-      !window.location.pathname.startsWith("/register")
+      !currentPath.startsWith("/login") &&
+      !currentPath.startsWith("/register")
     ) {
-      window.location.replace("/login?reason=session-expired");
+      window.location.replace(
+        "/login?reason=session-expired"
+      );
     }
 
-    throw new Error("Session expired");
+    throw new Error(
+      "Session expired. Please log in again."
+    );
   }
 
   if (!response.ok) {
-    const errorData = await response
-      .json()
-      .catch(() => null);
+
+    const errorData =
+      await response
+        .json()
+        .catch(() => null);
 
     throw new Error(
       errorData?.detail ||
@@ -160,105 +264,142 @@ async function request<T>(
 }
 
 /* =========================================================
-   Authentication
+   AUTHENTICATION
    ========================================================= */
 
 export async function ensureDemoSession(): Promise<void> {
-  if (
-    typeof window === "undefined" ||
-    !localStorage.getItem("flowx_token")
-  ) {
-    throw new Error("Authentication required");
+
+  if (typeof window === "undefined") {
+    throw new Error(
+      "Authentication required"
+    );
+  }
+
+  const token =
+    localStorage.getItem(
+      TOKEN_KEY
+    );
+
+  if (!token) {
+    throw new Error(
+      "Authentication required"
+    );
   }
 }
+
+/* =========================================================
+   LOGIN
+   ========================================================= */
 
 export async function login(
   email: string,
   password: string
 ): Promise<User> {
-  const response = await request<{
-    access_token: string;
-    token_type: string;
-    user: User;
-  }>("/auth/login", {
-    method: "POST",
-    body: JSON.stringify({
-      email,
-      password,
-    }),
-  });
 
-  localStorage.setItem("flowx_token", response.access_token);
-  localStorage.setItem(
-    "flowx_user",
-    JSON.stringify(response.user)
+  const response =
+    await request<{
+      access_token: string;
+      token_type: string;
+      user: User;
+    }>(
+      "/auth/login",
+      {
+        method: "POST",
+
+        body: JSON.stringify({
+          email,
+          password,
+        }),
+      }
+    );
+
+  /*
+   * IMPORTANT:
+   * Save the JWT returned by FastAPI.
+   */
+  setSession(
+    response.access_token,
+    response.user
   );
 
-  document.cookie =
-    "flowx_session=1; path=/; SameSite=Lax";
-
   return response.user;
-}
-
-export async function register(payload: {
-  email: string;
-  password: string;
-  full_name: string;
-
-  // Your FastAPI registration schema may call this
-  // company_name rather than merchant_name.
-  merchant_name: string;
-
-  industry?: string;
-  currency?: string;
-}): Promise<User> {
-  const response = await request<{
-    access_token: string;
-    token_type: string;
-    user: User;
-  }>("/auth/register", {
-    method: "POST",
-    body: JSON.stringify({
-      email: payload.email,
-      password: payload.password,
-      full_name: payload.full_name,
-      merchant_name: payload.merchant_name,
-      industry: payload.industry,
-      currency: payload.currency,
-    }),
-  });
-
-  localStorage.setItem("flowx_token", response.access_token);
-  localStorage.setItem(
-    "flowx_user",
-    JSON.stringify(response.user)
-  );
-
-  document.cookie =
-    "flowx_session=1; path=/; SameSite=Lax";
-
-  return response.user;
-}
-
-export function logout(): void {
-  if (typeof window === "undefined") {
-    return;
-  }
-
-  localStorage.removeItem("flowx_token");
-  localStorage.removeItem("flowx_user");
-
-  document.cookie =
-    "flowx_session=; Max-Age=0; path=/; SameSite=Lax";
 }
 
 /* =========================================================
-   Invoices
+   REGISTER
+   ========================================================= */
+
+export async function register(
+  payload: {
+    email: string;
+    password: string;
+    full_name: string;
+    merchant_name: string;
+    industry?: string;
+    currency?: string;
+  }
+): Promise<User> {
+
+  const response =
+    await request<{
+      access_token: string;
+      token_type: string;
+      user: User;
+    }>(
+      "/auth/register",
+      {
+        method: "POST",
+
+        body: JSON.stringify({
+          email:
+            payload.email,
+
+          password:
+            payload.password,
+
+          full_name:
+            payload.full_name,
+
+          merchant_name:
+            payload.merchant_name,
+
+          industry:
+            payload.industry,
+
+          currency:
+            payload.currency,
+        }),
+      }
+    );
+
+  /*
+   * Automatically create a session
+   * after successful registration.
+   */
+  setSession(
+    response.access_token,
+    response.user
+  );
+
+  return response.user;
+}
+
+/* =========================================================
+   LOGOUT
+   ========================================================= */
+
+export function logout(): void {
+  clearSession();
+}
+
+/* =========================================================
+   INVOICES
    ========================================================= */
 
 export async function getInvoices(
   risk?: string
 ): Promise<Invoice[]> {
+
   await ensureDemoSession();
 
   const query = risk
@@ -270,23 +411,36 @@ export async function getInvoices(
   );
 }
 
-export async function createInvoice(payload: {
-  invoice_number: string;
-  customer_name: string;
-  customer_email: string;
-  issue_date: string;
-  due_date: string;
-  amount: number;
-  paid_amount: number;
-  description: string;
-}): Promise<Invoice> {
+export async function createInvoice(
+  payload: {
+    invoice_number: string;
+    customer_name: string;
+    customer_email: string;
+    issue_date: string;
+    due_date: string;
+    amount: number;
+    paid_amount: number;
+    description: string;
+  }
+): Promise<Invoice> {
+
   await ensureDemoSession();
 
-  return request<Invoice>("/invoices", {
-    method: "POST",
-    body: JSON.stringify(payload),
-  });
+  return request<Invoice>(
+    "/invoices",
+    {
+      method: "POST",
+
+      body: JSON.stringify(
+        payload
+      ),
+    }
+  );
 }
+
+/* =========================================================
+   CSV IMPORT
+   ========================================================= */
 
 export async function importInvoices(
   file: File
@@ -294,48 +448,67 @@ export async function importInvoices(
   created: number;
   skipped: string[];
 }> {
+
   await ensureDemoSession();
 
-  const token = localStorage.getItem("flowx_token");
+  const token =
+    getToken();
 
-  const body = new FormData();
-  body.append("file", file);
+  const body =
+    new FormData();
+
+  body.append(
+    "file",
+    file
+  );
 
   const headers: HeadersInit = {};
 
   if (token) {
-    headers.Authorization = `Bearer ${token}`;
+    headers.Authorization =
+      `Bearer ${token}`;
   }
 
-  const response = await fetch(
-    `${API_URL}/invoices/import`,
-    {
-      method: "POST",
-      headers,
-      body,
-    }
-  );
+  const response =
+    await fetch(
+      `${API_URL}/invoices/import`,
+      {
+        method: "POST",
+        headers,
+        body,
+      }
+    );
 
-  if (response.status === 401) {
-    logout();
+  if (
+    response.status === 401 &&
+    typeof window !== "undefined"
+  ) {
+
+    clearSession();
+
+    const currentPath =
+      window.location.pathname;
 
     if (
-      typeof window !== "undefined" &&
-      !window.location.pathname.startsWith("/login") &&
-      !window.location.pathname.startsWith("/register")
+      !currentPath.startsWith("/login") &&
+      !currentPath.startsWith("/register")
     ) {
       window.location.replace(
         "/login?reason=session-expired"
       );
     }
 
-    throw new Error("Session expired");
+    throw new Error(
+      "Session expired. Please log in again."
+    );
   }
 
   if (!response.ok) {
-    const errorData = await response
-      .json()
-      .catch(() => null);
+
+    const errorData =
+      await response
+        .json()
+        .catch(() => null);
 
     throw new Error(
       errorData?.detail ||
@@ -347,22 +520,26 @@ export async function importInvoices(
 }
 
 /* =========================================================
-   Dashboard
+   DASHBOARD
    ========================================================= */
 
-export async function getDashboard(): Promise<DashboardData> {
+export async function getDashboard():
+  Promise<DashboardData> {
+
   await ensureDemoSession();
 
-  return request<DashboardData>("/dashboard");
+  return request<DashboardData>(
+    "/dashboard"
+  );
 }
 
 /* =========================================================
-   Recovery
+   RECOVERY
    ========================================================= */
 
-export async function getRecoveryActions(): Promise<
-  RecoveryAction[]
-> {
+export async function getRecoveryActions():
+  Promise<RecoveryAction[]> {
+
   await ensureDemoSession();
 
   return request<RecoveryAction[]>(
@@ -373,83 +550,111 @@ export async function getRecoveryActions(): Promise<
 export async function executeAction(
   id: number
 ): Promise<void> {
+
   await ensureDemoSession();
 
-  await request(`/recovery/${id}/execute`, {
-    method: "POST",
-  });
+  await request(
+    `/recovery/${id}/execute`,
+    {
+      method: "POST",
+    }
+  );
 }
 
 export async function approveAction(
   id: number
 ): Promise<void> {
+
   await ensureDemoSession();
 
-  await request(`/recovery/${id}/approve`, {
-    method: "POST",
-  });
+  await request(
+    `/recovery/${id}/approve`,
+    {
+      method: "POST",
+    }
+  );
 }
 
 export async function simulateRecovery(
   id: number
-): Promise<Record<string, unknown>> {
+): Promise<
+  Record<string, unknown>
+> {
+
   await ensureDemoSession();
 
-  return request<Record<string, unknown>>(
+  return request<
+    Record<string, unknown>
+  >(
     `/recovery/${id}/simulate`
   );
 }
 
 /* =========================================================
-   Promises to Pay
+   PROMISES TO PAY
    ========================================================= */
 
-export async function getPromises(): Promise<
-  PromiseRecord[]
-> {
+export async function getPromises():
+  Promise<PromiseRecord[]> {
+
   await ensureDemoSession();
 
-  return request<PromiseRecord[]>(
+  return request<
+    PromiseRecord[]
+  >(
     "/promises"
   );
 }
 
-export async function createPromise(payload: {
-  invoice_id: number;
-  committed_amount: number;
-  promised_date: string;
-  notes: string;
-}): Promise<PromiseRecord> {
+export async function createPromise(
+  payload: {
+    invoice_id: number;
+    committed_amount: number;
+    promised_date: string;
+    notes: string;
+  }
+): Promise<PromiseRecord> {
+
   await ensureDemoSession();
 
-  return request<PromiseRecord>(
+  return request<
+    PromiseRecord
+  >(
     "/promises",
     {
       method: "POST",
-      body: JSON.stringify(payload),
+
+      body: JSON.stringify(
+        payload
+      ),
     }
   );
 }
 
 /* =========================================================
-   Analytics
+   ANALYTICS
    ========================================================= */
 
-export async function getAnalytics(): Promise<
-  Record<string, unknown>
-> {
+export async function getAnalytics():
+  Promise<
+    Record<string, unknown>
+  > {
+
   await ensureDemoSession();
 
-  return request<Record<string, unknown>>(
+  return request<
+    Record<string, unknown>
+  >(
     "/analytics"
   );
 }
 
 /* =========================================================
-   Intelligence
+   INTELLIGENCE
    ========================================================= */
 
 export type IntelligenceData = {
+
   cash_velocity_score: number;
 
   portfolio_health: {
@@ -481,22 +686,29 @@ export type IntelligenceData = {
   };
 };
 
-export async function getIntelligence(): Promise<IntelligenceData> {
+export async function getIntelligence():
+  Promise<IntelligenceData> {
+
   await ensureDemoSession();
 
-  return request<IntelligenceData>(
+  return request<
+    IntelligenceData
+  >(
     "/intelligence"
   );
 }
 
 /* =========================================================
-   Invoice Decision / Cash Intelligence
+   INVOICE DECISION / CASH INTELLIGENCE
    ========================================================= */
 
 export type RiskDriver = {
   factor: string;
   value: string;
-  impact: "HIGH" | "MEDIUM" | "LOW";
+  impact:
+    | "HIGH"
+    | "MEDIUM"
+    | "LOW";
   explanation: string;
 };
 
@@ -514,6 +726,7 @@ export type RecoveryStrategy = {
 };
 
 export type InvoiceDecision = {
+
   invoice: {
     id: number;
     invoice_number: string;
@@ -532,7 +745,8 @@ export type InvoiceDecision = {
     predicted_delay_days: number;
   };
 
-  risk_drivers: RiskDriver[];
+  risk_drivers:
+    RiskDriver[];
 
   customer_behavior: {
     invoice_count: number;
@@ -540,9 +754,11 @@ export type InvoiceDecision = {
     average_delay_days: number;
   };
 
-  strategies: RecoveryStrategy[];
+  strategies:
+    RecoveryStrategy[];
 
-  recommended_strategy: RecoveryStrategy;
+  recommended_strategy:
+    RecoveryStrategy;
 
   cash_impact: {
     outstanding: number;
@@ -558,7 +774,8 @@ export type InvoiceDecision = {
     "30_days": number;
   };
 
-  recommendation_reason: string;
+  recommendation_reason:
+    string;
 
   policy: {
     max_discount_percent: number;
@@ -570,63 +787,104 @@ export type InvoiceDecision = {
 export async function getInvoiceDecision(
   invoiceId: number
 ): Promise<InvoiceDecision> {
+
   await ensureDemoSession();
 
-  return request<InvoiceDecision>(
+  return request<
+    InvoiceDecision
+  >(
     `/invoices/${invoiceId}/decision`
   );
 }
 
 /* =========================================================
-   Audit / Policies / Health / Demo
+   AUDIT LOGS
    ========================================================= */
 
-export async function getAuditLogs(): Promise<
-  Array<Record<string, unknown>>
-> {
+export async function getAuditLogs():
+  Promise<
+    Array<Record<string, unknown>>
+  > {
+
   await ensureDemoSession();
 
-  return request<Array<Record<string, unknown>>>(
+  return request<
+    Array<Record<string, unknown>>
+  >(
     "/audit-logs"
   );
 }
 
-export async function getPolicy(): Promise<
-  Record<string, unknown>
-> {
+/* =========================================================
+   POLICIES
+   ========================================================= */
+
+export async function getPolicy():
+  Promise<
+    Record<string, unknown>
+  > {
+
   await ensureDemoSession();
 
-  return request<Record<string, unknown>>(
+  return request<
+    Record<string, unknown>
+  >(
     "/policies"
   );
 }
 
 export async function updatePolicy(
-  payload: Record<string, unknown>
-): Promise<Record<string, unknown>> {
+  payload:
+    Record<string, unknown>
+): Promise<
+  Record<string, unknown>
+> {
+
   await ensureDemoSession();
 
-  return request<Record<string, unknown>>(
+  return request<
+    Record<string, unknown>
+  >(
     "/policies",
     {
       method: "PUT",
-      body: JSON.stringify(payload),
+
+      body: JSON.stringify(
+        payload
+      ),
     }
   );
 }
 
-export async function getHealth(): Promise<
-  Record<string, unknown>
-> {
-  return request<Record<string, unknown>>(
+/* =========================================================
+   HEALTH
+   ========================================================= */
+
+export async function getHealth():
+  Promise<
+    Record<string, unknown>
+  > {
+
+  return request<
+    Record<string, unknown>
+  >(
     "/health"
   );
 }
 
-export async function runDemo(): Promise<void> {
+/* =========================================================
+   DEMO
+   ========================================================= */
+
+export async function runDemo():
+  Promise<void> {
+
   await ensureDemoSession();
 
-  await request("/demo/run", {
-    method: "POST",
-  });
+  await request(
+    "/demo/run",
+    {
+      method: "POST",
+    }
+  );
 }
