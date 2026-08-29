@@ -2598,14 +2598,7 @@ async def import_invoices(
 
                 skipped.append(
                     f"{number}: "
-                    f"{
-                        exc.detail
-                        if isinstance(
-                            exc,
-                            HTTPException,
-                        )
-                        else 'invalid row'
-                    }"
+                     f"{exc.detail if isinstance(exc, HTTPException) else 'invalid row'}"
                 )
 
         audit(
