@@ -371,7 +371,7 @@ function InvoicesView({
       </div>
 
       {/* INVOICE TABLE */}
-      <div className="panel data-panel">
+      <div className="data-panel">
         <div className="table-wrap">
           <table>
             <thead>
@@ -1192,7 +1192,7 @@ function RecoveryView({
         </div>
       </div>
 
-      <div className="panel data-panel">
+      <div className="data-panel">
         <div className="table-wrap">
           <table>
             <thead>
@@ -1456,7 +1456,7 @@ function PromisesView({
         </div>
       </div>
 
-      <div className="panel data-panel">
+      <div className="data-panel">
         <div className="table-wrap">
           <table>
             <thead>
@@ -2066,7 +2066,7 @@ function AuditLogView({
         </div>
       </div>
 
-      <div className="panel data-panel">
+      <div className="data-panel">
         <div className="table-wrap">
           <table>
             <thead>
