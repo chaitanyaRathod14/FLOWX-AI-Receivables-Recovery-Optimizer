@@ -21,6 +21,7 @@ DEMO_MODE = os.getenv("DEMO_MODE", "true").lower() == "true"
 
 
 def db() -> sqlite3.Connection:
+    os.makedirs(os.path.dirname(os.path.abspath(DB_PATH)), exist_ok=True)
     connection = sqlite3.connect(DB_PATH)
     connection.row_factory = sqlite3.Row
     connection.execute("PRAGMA foreign_keys = ON")
@@ -116,7 +117,39 @@ async def lifespan(_: FastAPI):
 
 
 app = FastAPI(title="FLOWX API", version="1.1.0", lifespan=lifespan)
-app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
+
+cors_origins_env = os.getenv("CORS_ORIGINS", "")
+allowed_origins = [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "http://localhost:3001",
+    "http://127.0.0.1:3001",
+]
+if cors_origins_env:
+    for o in cors_origins_env.split(","):
+        clean_origin = o.strip()
+        if clean_origin and clean_origin not in allowed_origins:
+            allowed_origins.append(clean_origin)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=allowed_origins,
+    allow_origin_regex=r"https://.*\.vercel\.app",
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+@app.get("/")
+def root() -> dict[str, Any]:
+    return {
+        "status": "online",
+        "service": "FLOWX AI Receivables Recovery Optimizer API",
+        "version": "1.1.0",
+        "docs": "/docs",
+        "health": "/health",
+    }
 
 
 class AuthInput(BaseModel):

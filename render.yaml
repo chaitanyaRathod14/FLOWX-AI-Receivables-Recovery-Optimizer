@@ -1,0 +1,18 @@
+﻿services:
+  - type: web
+    name: flowx-backend
+    env: python
+    region: oregon
+    plan: free
+    buildCommand: pip install -r backend/requirements.txt
+    startCommand: python -m uvicorn backend.app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+      - key: DEMO_MODE
+        value: true
+      - key: FLOWX_JWT_SECRET
+        generateValue: true
+      - key: CORS_ORIGINS
+        value: http://localhost:3000

@@ -1,4 +1,5 @@
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const RAW_API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const API_URL = RAW_API_URL.replace(/\/+$/, "");
 
 export type User = { id: number; email: string; full_name: string; role: string; merchant_id: number; merchant_name: string };
 export type Invoice = { id: number; invoice_number: string; customer_name: string; customer_email?: string; amount: number; paid_amount: number; issue_date: string; due_date: string; status: string; risk_tier: string; risk_probability: number; predicted_delay_days: number; description: string };
