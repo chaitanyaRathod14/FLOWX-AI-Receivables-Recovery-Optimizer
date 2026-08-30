@@ -674,7 +674,7 @@ def seed(
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    init_db()
+
     yield
 
 
