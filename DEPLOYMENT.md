@@ -8,8 +8,9 @@ This guide walks you through deploying the complete FLOWX AI Receivables Recover
 
 ## 📦 Architecture Overview
 
-- **Backend**: FastAPI + SQLite + Uvicorn (Hosted on Render)
+- **Backend**: FastAPI + Supabase PostgreSQL + Uvicorn (Hosted on Render)
 - **Frontend**: Next.js 16 + React 19 + Tailwind CSS + Lucide (Hosted on Vercel)
+- **Database**: Supabase Postgres project with project URL, anon key, service role key, and DB connection string
 - **Repository**: [FLOWX-AI-Receivables-Recovery-Optimizer](https://github.com/chaitanyaRathod14/FLOWX-AI-Receivables-Recovery-Optimizer)
 
 ---
@@ -20,7 +21,8 @@ This guide walks you through deploying the complete FLOWX AI Receivables Recover
 1. Go to [Render Dashboard](https://dashboard.render.com/).
 2. Click **New +** > **Blueprint**.
 3. Connect your GitHub repository: chaitanyaRathod14/FLOWX-AI-Receivables-Recovery-Optimizer.
-4. Render will automatically detect ender.yaml and configure everything.
+4. Render will automatically detect 
+ender.yaml and configure everything.
 5. Click **Apply**.
 
 ---
@@ -43,9 +45,14 @@ If you prefer setting up manually:
    | Variable | Value | Notes |
    |---|---|---|
    | PYTHON_VERSION | 3.11.9 | Python runtime version |
-   | DEMO_MODE | 	rue | Pre-seeds demo tenant data |
+   | DEMO_MODE | true | Pre-seeds demo tenant data |
    | FLOWX_JWT_SECRET | *(Generate or set a secure 32+ char string)* | Used for session JWTs |
    | CORS_ORIGINS | http://localhost:3000 *(update after Vercel deploy)* | Comma-separated allowed URLs |
+   | SUPABASE_URL | https://<project-ref>.supabase.co | Project URL from Supabase |
+   | SUPABASE_ANON_KEY | <anon_key> | Browser-safe public key |
+   | SUPABASE_SERVICE_ROLE_KEY | <service_role_key> | Server-side secret, keep private |
+   | DATABASE_URL | postgresql://postgres:<password>@db.<project-ref>.supabase.co:5432/postgres | Primary Postgres connection string |
+   | SUPABASE_DB_URL | postgresql://postgres:<password>@db.<project-ref>.supabase.co:5432/postgres | Kept consistent with DATABASE_URL |
 
 5. Click **Create Web Service**.
 6. Wait 2–3 minutes for the build to finish.

@@ -6,11 +6,14 @@ import hmac
 import io
 import json
 import os
+from pathlib import Path
 import secrets
 import sqlite3
 from typing import Any
 
 import jwt
+import psycopg
+from psycopg.rows import dict_row
 from fastapi import (
     Depends,
     FastAPI,
@@ -23,70 +26,121 @@ from fastapi import (
 )
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from typing import Any, Union
 
 
 # ============================================================
 # ENVIRONMENT
 # ============================================================
 
-DB_PATH = os.getenv(
-    "FLOWX_DB",
-    os.path.join(os.path.dirname(__file__), "flowx.db"),
+from backend.config import (
+    ALLOWED_ORIGINS,
+    CORS_ORIGINS,
+    DATABASE_URL,
+    DB_MODE,
+    DB_PATH,
+    DEMO_MODE,
+    JWT_SECRET,
+    SUPABASE_ANON_KEY,
+    SUPABASE_SERVICE_ROLE_KEY,
+    SUPABASE_URL,
 )
-print("USING DATABASE FILE:", os.path.abspath(DB_PATH))
-JWT_SECRET = os.getenv(
-    "FLOWX_JWT_SECRET",
-    "flowx-local-development-secret-change-me",
-)
 
-DEMO_MODE = os.getenv("DEMO_MODE", "true").lower() == "true"
-
-
-# ============================================================
-# CORS
-# ============================================================
-
-CORS_ORIGINS = os.getenv("CORS_ORIGINS", "")
-
-DEFAULT_CORS_ORIGINS = [
-    "http://localhost:3000",
-    "http://127.0.0.1:3000",
-    "http://localhost:3001",
-    "http://127.0.0.1:3001",
-]
-
-configured_origins = [
-    origin.strip().rstrip("/")
-    for origin in CORS_ORIGINS.split(",")
-    if origin.strip()
-]
-
-ALLOWED_ORIGINS = list(
-    dict.fromkeys(
-        DEFAULT_CORS_ORIGINS + configured_origins
-    )
-)
+print("USING DATABASE MODE:", DB_MODE)
+if DB_MODE == "postgres":
+    print("SUPABASE URL:", SUPABASE_URL)
+    print("DATABASE URL: configured")
+else:
+    print("USING DATABASE FILE:", os.path.abspath(DB_PATH))
 
 
 # ============================================================
 # DATABASE
 # ============================================================
 
-def db() -> sqlite3.Connection:
+class DbConnection:
+    def __init__(self, native_connection: Any):
+        self._connection = native_connection
+
+    def execute(self, query: str, params: tuple[Any, ...] | list[Any] | None = None):
+        if DB_MODE == "postgres":
+            postgres_sql = query.replace("?", "%s")
+            cursor = self._connection.cursor(row_factory=dict_row)
+            cursor.execute(postgres_sql, params or ())
+            return cursor
+
+        return self._connection.execute(query, params or ())
+
+    def executescript(self, script: str) -> None:
+        if DB_MODE == "postgres":
+            statements = [
+                statement.strip()
+                for statement in script.split(";")
+                if statement.strip()
+            ]
+            for statement in statements:
+                if statement.upper().startswith("BEGIN"):
+                    continue
+                if statement.upper().startswith("COMMIT"):
+                    continue
+                self._connection.execute(statement)
+            return
+
+        self._connection.executescript(script)
+
+
+    def commit(self) -> None:
+        self._connection.commit()
+
+    def rollback(self) -> None:
+        self._connection.rollback()
+
+    def close(self) -> None:
+        self._connection.close()
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._connection, name)
+
+
+def db() -> Any:
+    if DB_MODE == "postgres":
+        print("Supabase/Postgres database connection configured.")
+        connection = psycopg.connect(DATABASE_URL, autocommit=False)
+        return DbConnection(connection)
+
     os.makedirs(
         os.path.dirname(os.path.abspath(DB_PATH)),
         exist_ok=True,
     )
 
     connection = sqlite3.connect(DB_PATH)
-
     connection.row_factory = sqlite3.Row
-
-    connection.execute(
-        "PRAGMA foreign_keys = ON"
-    )
-
+    connection.execute("PRAGMA foreign_keys = ON")
     return connection
+
+
+def last_insert_id(connection: Any) -> int:
+    if DB_MODE == "postgres":
+        row = connection.execute("SELECT LASTVAL() AS id").fetchone()
+        if row is None or row.get("id") is None:
+            raise RuntimeError("Unable to resolve the inserted row id for Postgres.")
+        return int(row["id"])
+
+    return connection.execute("SELECT last_insert_rowid()").fetchone()[0]
+
+
+def insert_and_return_id(connection: Any, query: str, params: tuple[Any, ...] | list[Any] | None = None) -> int:
+    if DB_MODE == "postgres":
+        postgres_query = query.strip()
+        if postgres_query.endswith(";"):
+            postgres_query = postgres_query[:-1]
+        row = connection.execute(f"{postgres_query} RETURNING id", params or ()).fetchone()
+        if row is None or row.get("id") is None:
+            raise RuntimeError("Insert did not return a generated id for Postgres.")
+        return int(row["id"])
+
+    connection.execute(query, params or ())
+    return last_insert_id(connection)
 
 
 # ============================================================
@@ -142,7 +196,7 @@ def verify_password(
 # JWT
 # ============================================================
 
-def token_for(user: sqlite3.Row) -> str:
+def token_for(user: dict[str, Any]) -> str:
 
     issued_at = datetime.now(timezone.utc)
 
@@ -165,7 +219,7 @@ def token_for(user: sqlite3.Row) -> str:
 # ============================================================
 
 def audit(
-    connection: sqlite3.Connection,
+    connection: Any,
     merchant_id: int,
     event_type: str,
     description: str,
@@ -208,113 +262,118 @@ def init_db() -> None:
 
     connection = db()
 
-    connection.executescript(
-        """
-        CREATE TABLE IF NOT EXISTS merchants (
-            id INTEGER PRIMARY KEY,
-            name TEXT NOT NULL,
-            created_at TEXT NOT NULL
-        );
+    if DB_MODE == "postgres":
+        schema_path = Path(__file__).resolve().parent / "supabase_schema.sql"
+        schema_sql = schema_path.read_text(encoding="utf-8")
+        connection.executescript(schema_sql)
+    else:
+        connection.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS merchants (
+                id INTEGER PRIMARY KEY,
+                name TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
 
-        CREATE TABLE IF NOT EXISTS users (
-            id INTEGER PRIMARY KEY,
-            merchant_id INTEGER NOT NULL
-                REFERENCES merchants(id),
-            email TEXT UNIQUE NOT NULL,
-            full_name TEXT NOT NULL,
-            role TEXT NOT NULL,
-            password_hash TEXT NOT NULL,
-            active INTEGER NOT NULL DEFAULT 1
-        );
+            CREATE TABLE IF NOT EXISTS users (
+                id INTEGER PRIMARY KEY,
+                merchant_id INTEGER NOT NULL
+                    REFERENCES merchants(id),
+                email TEXT UNIQUE NOT NULL,
+                full_name TEXT NOT NULL,
+                role TEXT NOT NULL,
+                password_hash TEXT NOT NULL,
+                active INTEGER NOT NULL DEFAULT 1
+            );
 
-        CREATE TABLE IF NOT EXISTS policies (
-            id INTEGER PRIMARY KEY,
-            merchant_id INTEGER UNIQUE NOT NULL
-                REFERENCES merchants(id),
-            max_discount_percent REAL NOT NULL DEFAULT 5,
-            approval_threshold_percent REAL NOT NULL DEFAULT 2,
-            high_value_threshold REAL NOT NULL DEFAULT 10000,
-            max_automated_reminders INTEGER NOT NULL DEFAULT 3,
-            early_payment_discounts INTEGER NOT NULL DEFAULT 1,
-            automated_reminders INTEGER NOT NULL DEFAULT 1
-        );
+            CREATE TABLE IF NOT EXISTS policies (
+                id INTEGER PRIMARY KEY,
+                merchant_id INTEGER UNIQUE NOT NULL
+                    REFERENCES merchants(id),
+                max_discount_percent REAL NOT NULL DEFAULT 5,
+                approval_threshold_percent REAL NOT NULL DEFAULT 2,
+                high_value_threshold REAL NOT NULL DEFAULT 10000,
+                max_automated_reminders INTEGER NOT NULL DEFAULT 3,
+                early_payment_discounts INTEGER NOT NULL DEFAULT 1,
+                automated_reminders INTEGER NOT NULL DEFAULT 1
+            );
 
-        CREATE TABLE IF NOT EXISTS customers (
-            id INTEGER PRIMARY KEY,
-            merchant_id INTEGER NOT NULL
-                REFERENCES merchants(id),
-            name TEXT NOT NULL,
-            email TEXT NOT NULL
-        );
+            CREATE TABLE IF NOT EXISTS customers (
+                id INTEGER PRIMARY KEY,
+                merchant_id INTEGER NOT NULL
+                    REFERENCES merchants(id),
+                name TEXT NOT NULL,
+                email TEXT NOT NULL
+            );
 
-        CREATE TABLE IF NOT EXISTS invoices (
-            id INTEGER PRIMARY KEY,
-            merchant_id INTEGER NOT NULL
-                REFERENCES merchants(id),
-            customer_id INTEGER NOT NULL
-                REFERENCES customers(id),
-            invoice_number TEXT NOT NULL,
-            issue_date TEXT NOT NULL,
-            due_date TEXT NOT NULL,
-            amount REAL NOT NULL,
-            paid_amount REAL NOT NULL DEFAULT 0,
-            status TEXT NOT NULL,
-            description TEXT NOT NULL,
-            risk_probability REAL NOT NULL,
-            risk_tier TEXT NOT NULL,
-            predicted_delay_days INTEGER NOT NULL
-        );
+            CREATE TABLE IF NOT EXISTS invoices (
+                id INTEGER PRIMARY KEY,
+                merchant_id INTEGER NOT NULL
+                    REFERENCES merchants(id),
+                customer_id INTEGER NOT NULL
+                    REFERENCES customers(id),
+                invoice_number TEXT NOT NULL,
+                issue_date TEXT NOT NULL,
+                due_date TEXT NOT NULL,
+                amount REAL NOT NULL,
+                paid_amount REAL NOT NULL DEFAULT 0,
+                status TEXT NOT NULL,
+                description TEXT NOT NULL,
+                risk_probability REAL NOT NULL,
+                risk_tier TEXT NOT NULL,
+                predicted_delay_days INTEGER NOT NULL
+            );
 
-        CREATE TABLE IF NOT EXISTS recovery_actions (
-            id INTEGER PRIMARY KEY,
-            merchant_id INTEGER NOT NULL
-                REFERENCES merchants(id),
-            invoice_id INTEGER NOT NULL
-                REFERENCES invoices(id),
-            action_type TEXT NOT NULL,
-            reason TEXT NOT NULL,
-            discount_percent REAL NOT NULL DEFAULT 0,
-            confidence REAL NOT NULL,
-            policy_result TEXT NOT NULL,
-            status TEXT NOT NULL,
-            external_reference TEXT,
-            created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL
-        );
+            CREATE TABLE IF NOT EXISTS recovery_actions (
+                id INTEGER PRIMARY KEY,
+                merchant_id INTEGER NOT NULL
+                    REFERENCES merchants(id),
+                invoice_id INTEGER NOT NULL
+                    REFERENCES invoices(id),
+                action_type TEXT NOT NULL,
+                reason TEXT NOT NULL,
+                discount_percent REAL NOT NULL DEFAULT 0,
+                confidence REAL NOT NULL,
+                policy_result TEXT NOT NULL,
+                status TEXT NOT NULL,
+                external_reference TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
 
-        CREATE TABLE IF NOT EXISTS promises (
-            id INTEGER PRIMARY KEY,
-            merchant_id INTEGER NOT NULL
-                REFERENCES merchants(id),
-            invoice_id INTEGER NOT NULL
-                REFERENCES invoices(id),
-            committed_amount REAL NOT NULL,
-            promised_date TEXT NOT NULL,
-            notes TEXT NOT NULL,
-            status TEXT NOT NULL,
-            created_at TEXT NOT NULL
-        );
+            CREATE TABLE IF NOT EXISTS promises (
+                id INTEGER PRIMARY KEY,
+                merchant_id INTEGER NOT NULL
+                    REFERENCES merchants(id),
+                invoice_id INTEGER NOT NULL
+                    REFERENCES invoices(id),
+                committed_amount REAL NOT NULL,
+                promised_date TEXT NOT NULL,
+                notes TEXT NOT NULL,
+                status TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
 
-        CREATE TABLE IF NOT EXISTS webhook_events (
-            id INTEGER PRIMARY KEY,
-            merchant_id INTEGER NOT NULL,
-            event_id TEXT UNIQUE NOT NULL,
-            payload TEXT NOT NULL,
-            processed_at TEXT NOT NULL
-        );
+            CREATE TABLE IF NOT EXISTS webhook_events (
+                id INTEGER PRIMARY KEY,
+                merchant_id INTEGER NOT NULL,
+                event_id TEXT UNIQUE NOT NULL,
+                payload TEXT NOT NULL,
+                processed_at TEXT NOT NULL
+            );
 
-        CREATE TABLE IF NOT EXISTS audit_logs (
-            id INTEGER PRIMARY KEY,
-            merchant_id INTEGER NOT NULL,
-            actor_id INTEGER,
-            action_id INTEGER,
-            event_type TEXT NOT NULL,
-            description TEXT NOT NULL,
-            details TEXT NOT NULL,
-            created_at TEXT NOT NULL
-        );
-        """
-    )
+            CREATE TABLE IF NOT EXISTS audit_logs (
+                id INTEGER PRIMARY KEY,
+                merchant_id INTEGER NOT NULL,
+                actor_id INTEGER,
+                action_id INTEGER,
+                event_type TEXT NOT NULL,
+                description TEXT NOT NULL,
+                details TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+            """
+        )
 
     if (
         DEMO_MODE
@@ -339,7 +398,7 @@ def init_db() -> None:
 # ============================================================
 
 def seed(
-    connection: sqlite3.Connection,
+    connection: Any,
     merchant_name: str,
     email: str,
     full_name: str,
@@ -364,9 +423,7 @@ def seed(
             ),
         )
 
-        merchant_id = connection.execute(
-            "SELECT last_insert_rowid()"
-        ).fetchone()[0]
+        merchant_id = last_insert_id(connection)
 
     if actor_id is None:
 
@@ -408,9 +465,7 @@ def seed(
                 ),
             )
 
-            actor_id = connection.execute(
-                "SELECT last_insert_rowid()"
-            ).fetchone()[0]
+            actor_id = last_insert_id(connection)
 
     if not connection.execute(
         """
@@ -595,9 +650,7 @@ def seed(
             ),
         )
 
-        invoice_id = connection.execute(
-            "SELECT last_insert_rowid()"
-        ).fetchone()[0]
+        invoice_id = last_insert_id(connection)
 
         action_data = {
             "Critical": (
@@ -853,7 +906,7 @@ def current_user(
     authorization: str | None = Header(
         default=None
     ),
-) -> sqlite3.Row:
+) -> dict[str, Any]:
 
     if not authorization:
 
@@ -926,11 +979,11 @@ def current_user(
                 u.*,
                 m.name AS merchant_name
             FROM users u
-            JOIN merchants m
-                ON m.id = u.merchant_id
+                JOIN merchants m
+                    ON m.id = u.merchant_id
             WHERE u.id = ?
               AND u.merchant_id = ?
-              AND u.active = 1
+              AND u.active = TRUE
             """,
             (
                 int(user_id),
@@ -953,7 +1006,7 @@ def current_user(
 
 
 def user_json(
-    user: sqlite3.Row,
+    user: dict[str, Any],
 ) -> dict[str, Any]:
 
     return {
@@ -1034,7 +1087,7 @@ def risk_for_invoice(
 # ============================================================
 
 def create_invoice(
-    connection: sqlite3.Connection,
+    connection: Any,
     merchant_id: int,
     data: InvoiceInput,
     actor_id: int,
@@ -1114,9 +1167,7 @@ def create_invoice(
             ),
         )
 
-        customer_id = connection.execute(
-            "SELECT last_insert_rowid()"
-        ).fetchone()[0]
+        customer_id = last_insert_id(connection)
 
     tier, probability, delay = risk_for_invoice(
         data.amount,
@@ -1175,9 +1226,7 @@ def create_invoice(
         ),
     )
 
-    invoice_id = connection.execute(
-        "SELECT last_insert_rowid()"
-    ).fetchone()[0]
+    invoice_id = last_insert_id(connection)
 
     action_type, reason, discount, confidence, action_status = {
         "Critical": (
@@ -1263,9 +1312,7 @@ def create_invoice(
         ),
     )
 
-    action_id = connection.execute(
-        "SELECT last_insert_rowid()"
-    ).fetchone()[0]
+    action_id = last_insert_id(connection)
 
     audit(
         connection,
@@ -1347,9 +1394,7 @@ def register(
             ),
         )
 
-        merchant_id = connection.execute(
-            "SELECT last_insert_rowid()"
-        ).fetchone()[0]
+        merchant_id = last_insert_id(connection)
 
         connection.execute(
             """
@@ -1371,9 +1416,7 @@ def register(
             ),
         )
 
-        user_id = connection.execute(
-            "SELECT last_insert_rowid()"
-        ).fetchone()[0]
+        user_id = last_insert_id(connection)
 
         connection.execute(
             """
@@ -1499,7 +1542,7 @@ def login(
 
 @app.get("/auth/me")
 def me(
-    user: sqlite3.Row = Depends(
+    user: dict[str, Any] = Depends(
         current_user
     ),
 ) -> dict[str, Any]:
@@ -1513,7 +1556,7 @@ def me(
 
 @app.get("/dashboard")
 def dashboard(
-    user: sqlite3.Row = Depends(
+    user: dict[str, Any] = Depends(
         current_user
     ),
 ) -> dict[str, Any]:
@@ -1706,7 +1749,7 @@ def dashboard(
 
 @app.get("/invoices")
 def invoices(
-    user: sqlite3.Row = Depends(
+    user: dict[str, Any] = Depends(
         current_user
     ),
     risk: str | None = Query(
@@ -1763,7 +1806,7 @@ def invoices(
 @app.get("/invoices/{invoice_id}/decision")
 def invoice_decision(
     invoice_id: int,
-    user: sqlite3.Row = Depends(
+    user: dict[str, Any] = Depends(
         current_user
     ),
 ) -> dict[str, Any]:
@@ -2413,7 +2456,7 @@ def invoice_decision(
 @app.post("/invoices")
 def add_invoice(
     data: InvoiceInput,
-    user: sqlite3.Row = Depends(
+    user: dict[str, Any] = Depends(
         current_user
     ),
 ) -> dict[str, Any]:
@@ -2445,7 +2488,7 @@ def add_invoice(
 @app.post("/invoices/import")
 async def import_invoices(
     file: UploadFile = File(...),
-    user: sqlite3.Row = Depends(
+    user: dict[str, Any] = Depends(
         current_user
     ),
 ) -> dict[str, Any]:
@@ -2636,7 +2679,7 @@ async def import_invoices(
 @app.post("/recovery/{action_id}/approve")
 def approve(
     action_id: int,
-    user: sqlite3.Row = Depends(
+    user: dict[str, Any] = Depends(
         current_user
     ),
 ) -> dict[str, Any]:
@@ -2720,7 +2763,7 @@ def approve(
 @app.post("/recovery/{action_id}/execute")
 def execute(
     action_id: int,
-    user: sqlite3.Row = Depends(
+    user: dict[str, Any] = Depends(
         current_user
     ),
 ) -> dict[str, Any]:
@@ -2818,7 +2861,7 @@ def execute(
 
 @app.get("/policies")
 def get_policy(
-    user: sqlite3.Row = Depends(
+    user: dict[str, Any] = Depends(
         current_user
     ),
 ) -> dict[str, Any]:
@@ -2849,7 +2892,7 @@ def get_policy(
 @app.put("/policies")
 def update_policy(
     data: PolicyInput,
-    user: sqlite3.Row = Depends(
+    user: dict[str, Any] = Depends(
         current_user
     ),
 ) -> dict[str, Any]:
@@ -2924,7 +2967,7 @@ def update_policy(
 
 @app.get("/promises")
 def promises(
-    user: sqlite3.Row = Depends(
+    user: dict[str, Any] = Depends(
         current_user
     ),
 ) -> list[dict[str, Any]]:
@@ -2959,7 +3002,7 @@ def promises(
 @app.post("/promises")
 def create_promise(
     data: PromiseInput,
-    user: sqlite3.Row = Depends(
+    user: dict[str, Any] = Depends(
         current_user
     ),
 ) -> dict[str, Any]:
@@ -3027,9 +3070,7 @@ def create_promise(
         ),
     )
 
-    promise_id = connection.execute(
-        "SELECT last_insert_rowid()"
-    ).fetchone()[0]
+    promise_id = last_insert_id(connection)
 
     audit(
         connection,
@@ -3070,7 +3111,7 @@ def create_promise(
 @app.post("/webhooks/payment")
 def payment_webhook(
     data: WebhookInput,
-    user: sqlite3.Row = Depends(
+    user: dict[str, Any] = Depends(
         current_user
     ),
     x_flowx_signature: str | None = Header(
@@ -3238,7 +3279,7 @@ def payment_webhook(
 
 @app.get("/audit-logs")
 def audit_logs(
-    user: sqlite3.Row = Depends(
+    user: dict[str, Any] = Depends(
         current_user
     ),
 ) -> list[dict[str, Any]]:
@@ -3269,7 +3310,7 @@ def audit_logs(
 
 @app.get("/intelligence")
 def intelligence(
-    user: sqlite3.Row = Depends(
+    user: dict[str, Any] = Depends(
         current_user
     ),
 ) -> dict[str, Any]:
@@ -3658,7 +3699,7 @@ def intelligence(
 @app.get("/customers/{customer_id}/fingerprint")
 def customer_fingerprint(
     customer_id: int,
-    user: sqlite3.Row = Depends(
+    user: dict[str, Any] = Depends(
         current_user
     ),
 ) -> dict[str, Any]:
@@ -3856,7 +3897,7 @@ def customer_fingerprint(
 @app.get("/recovery/{action_id}/simulate")
 def simulate_recovery(
     action_id: int,
-    user: sqlite3.Row = Depends(
+    user: dict[str, Any] = Depends(
         current_user
     ),
 ) -> dict[str, Any]:
@@ -4001,7 +4042,7 @@ def simulate_recovery(
 
 @app.get("/analytics")
 def analytics(
-    user: sqlite3.Row = Depends(
+    user: dict[str, Any] = Depends(
         current_user
     ),
 ) -> dict[str, Any]:
@@ -4091,7 +4132,7 @@ def analytics(
 
 @app.post("/demo/run")
 def run_demo(
-    user: sqlite3.Row = Depends(
+    user: dict[str, Any] = Depends(
         current_user
     ),
 ) -> dict[str, Any]:
@@ -4195,7 +4236,7 @@ def run_demo(
 
 @app.get("/recovery")
 def recovery_actions(
-    user: sqlite3.Row = Depends(
+    user: dict[str, Any] = Depends(
         current_user
     ),
 ) -> list[dict[str, Any]]:

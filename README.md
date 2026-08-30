@@ -4,7 +4,29 @@ This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-
 
 FLOWX
 
-FLOWX is a working local receivables recovery application. The Next.js client talks to a FastAPI + SQLite service with seeded demo data.
+FLOWX is a working local receivables recovery application. The project is now configured for a Supabase PostgreSQL database, with a SQLite compatibility fallback during the legacy SQL migration.
+
+## Environment setup
+
+Copy the sample env files and replace the placeholder values with your own Supabase project credentials:
+
+```powershell
+copy .env.example .env
+copy .env.example .env.local
+```
+
+Required variables include:
+
+- `SUPABASE_URL`
+- `SUPABASE_ANON_KEY`
+- `SUPABASE_SERVICE_ROLE_KEY`
+- `DATABASE_URL`
+- `FLOWX_JWT_SECRET`
+- `CORS_ORIGINS`
+
+## Supabase database migration
+
+Use the schema definition in `backend/app/supabase_schema.sql` to create the tables in your Supabase project. The app still contains legacy SQLite-specific SQL calls in `backend/app/main.py`, so the remaining step is a full SQL translation before the backend can operate exclusively against Postgres/Supabase.
 
 ## Run locally
 
