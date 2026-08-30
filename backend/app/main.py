@@ -537,7 +537,7 @@ def seed(
             )
 
     customer_ids = [
-        row[0]
+        row["id"]
         for row in connection.execute(
             """
             SELECT id
