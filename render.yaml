@@ -10,19 +10,27 @@
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.9
+
       - key: DEMO_MODE
         value: true
+
       - key: FLOWX_JWT_SECRET
         generateValue: true
+
       - key: CORS_ORIGINS
-        value: http://localhost:3000
+        value: https://flowx-ai-receivables-recovery-optim.vercel.app
+
       - key: SUPABASE_URL
         sync: false
+
       - key: SUPABASE_ANON_KEY
         sync: false
+
       - key: SUPABASE_SERVICE_ROLE_KEY
         sync: false
+
       - key: DATABASE_URL
         sync: false
+
       - key: SUPABASE_DB_URL
         sync: false
