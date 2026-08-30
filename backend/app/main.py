@@ -7,6 +7,7 @@ import io
 import json
 import os
 import secrets
+import sqlite3
 from typing import Any
 
 import jwt
@@ -21,8 +22,6 @@ from fastapi import (
     status,
 )
 from fastapi.middleware.cors import CORSMiddleware
-import psycopg
-from psycopg.rows import dict_row
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 
@@ -30,10 +29,11 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field
 # ENVIRONMENT
 # ============================================================
 
-DATABASE_URL = os.getenv("DATABASE_URL", "")
-if DATABASE_URL.startswith("postgres://"):
-    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
-
+DB_PATH = os.getenv(
+    "FLOWX_DB",
+    os.path.join(os.path.dirname(__file__), "flowx.db"),
+)
+print("USING DATABASE FILE:", os.path.abspath(DB_PATH))
 JWT_SECRET = os.getenv(
     "FLOWX_JWT_SECRET",
     "flowx-local-development-secret-change-me",
@@ -72,14 +72,21 @@ ALLOWED_ORIGINS = list(
 # DATABASE
 # ============================================================
 
-def db() -> psycopg.Connection:
-    if not DATABASE_URL:
-        raise RuntimeError("DATABASE_URL environment variable is not set")
-
-    return psycopg.connect(
-        DATABASE_URL,
-        row_factory=dict_row,
+def db() -> sqlite3.Connection:
+    os.makedirs(
+        os.path.dirname(os.path.abspath(DB_PATH)),
+        exist_ok=True,
     )
+
+    connection = sqlite3.connect(DB_PATH)
+
+    connection.row_factory = sqlite3.Row
+
+    connection.execute(
+        "PRAGMA foreign_keys = ON"
+    )
+
+    return connection
 
 
 # ============================================================
@@ -135,7 +142,7 @@ def verify_password(
 # JWT
 # ============================================================
 
-def token_for(user: dict[str, Any]) -> str:
+def token_for(user: sqlite3.Row) -> str:
 
     issued_at = datetime.now(timezone.utc)
 
@@ -158,7 +165,7 @@ def token_for(user: dict[str, Any]) -> str:
 # ============================================================
 
 def audit(
-    connection: psycopg.Connection,
+    connection: sqlite3.Connection,
     merchant_id: int,
     event_type: str,
     description: str,
@@ -179,7 +186,7 @@ def audit(
             details,
             created_at
         )
-        VALUES (%s, %s, %s, %s, %s, %s, %s)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
         """,
         (
             merchant_id,
@@ -201,16 +208,16 @@ def init_db() -> None:
 
     connection = db()
 
-    connection.execute(
+    connection.executescript(
         """
         CREATE TABLE IF NOT EXISTS merchants (
-            id SERIAL PRIMARY KEY,
+            id INTEGER PRIMARY KEY,
             name TEXT NOT NULL,
             created_at TEXT NOT NULL
         );
 
         CREATE TABLE IF NOT EXISTS users (
-            id SERIAL PRIMARY KEY,
+            id INTEGER PRIMARY KEY,
             merchant_id INTEGER NOT NULL
                 REFERENCES merchants(id),
             email TEXT UNIQUE NOT NULL,
@@ -221,19 +228,19 @@ def init_db() -> None:
         );
 
         CREATE TABLE IF NOT EXISTS policies (
-            id SERIAL PRIMARY KEY,
+            id INTEGER PRIMARY KEY,
             merchant_id INTEGER UNIQUE NOT NULL
                 REFERENCES merchants(id),
-            max_discount_percent DOUBLE PRECISION NOT NULL DEFAULT 5,
-            approval_threshold_percent DOUBLE PRECISION NOT NULL DEFAULT 2,
-            high_value_threshold DOUBLE PRECISION NOT NULL DEFAULT 10000,
+            max_discount_percent REAL NOT NULL DEFAULT 5,
+            approval_threshold_percent REAL NOT NULL DEFAULT 2,
+            high_value_threshold REAL NOT NULL DEFAULT 10000,
             max_automated_reminders INTEGER NOT NULL DEFAULT 3,
-            early_payment_discounts BOOLEAN NOT NULL DEFAULT TRUE,
-            automated_reminders BOOLEAN NOT NULL DEFAULT TRUE
+            early_payment_discounts INTEGER NOT NULL DEFAULT 1,
+            automated_reminders INTEGER NOT NULL DEFAULT 1
         );
 
         CREATE TABLE IF NOT EXISTS customers (
-            id SERIAL PRIMARY KEY,
+            id INTEGER PRIMARY KEY,
             merchant_id INTEGER NOT NULL
                 REFERENCES merchants(id),
             name TEXT NOT NULL,
@@ -241,7 +248,7 @@ def init_db() -> None:
         );
 
         CREATE TABLE IF NOT EXISTS invoices (
-            id SERIAL PRIMARY KEY,
+            id INTEGER PRIMARY KEY,
             merchant_id INTEGER NOT NULL
                 REFERENCES merchants(id),
             customer_id INTEGER NOT NULL
@@ -249,25 +256,25 @@ def init_db() -> None:
             invoice_number TEXT NOT NULL,
             issue_date TEXT NOT NULL,
             due_date TEXT NOT NULL,
-            amount DOUBLE PRECISION NOT NULL,
-            paid_amount DOUBLE PRECISION NOT NULL DEFAULT 0,
+            amount REAL NOT NULL,
+            paid_amount REAL NOT NULL DEFAULT 0,
             status TEXT NOT NULL,
             description TEXT NOT NULL,
-            risk_probability DOUBLE PRECISION NOT NULL,
+            risk_probability REAL NOT NULL,
             risk_tier TEXT NOT NULL,
             predicted_delay_days INTEGER NOT NULL
         );
 
         CREATE TABLE IF NOT EXISTS recovery_actions (
-            id SERIAL PRIMARY KEY,
+            id INTEGER PRIMARY KEY,
             merchant_id INTEGER NOT NULL
                 REFERENCES merchants(id),
             invoice_id INTEGER NOT NULL
                 REFERENCES invoices(id),
             action_type TEXT NOT NULL,
             reason TEXT NOT NULL,
-            discount_percent DOUBLE PRECISION NOT NULL DEFAULT 0,
-            confidence DOUBLE PRECISION NOT NULL,
+            discount_percent REAL NOT NULL DEFAULT 0,
+            confidence REAL NOT NULL,
             policy_result TEXT NOT NULL,
             status TEXT NOT NULL,
             external_reference TEXT,
@@ -276,12 +283,12 @@ def init_db() -> None:
         );
 
         CREATE TABLE IF NOT EXISTS promises (
-            id SERIAL PRIMARY KEY,
+            id INTEGER PRIMARY KEY,
             merchant_id INTEGER NOT NULL
                 REFERENCES merchants(id),
             invoice_id INTEGER NOT NULL
                 REFERENCES invoices(id),
-            committed_amount DOUBLE PRECISION NOT NULL,
+            committed_amount REAL NOT NULL,
             promised_date TEXT NOT NULL,
             notes TEXT NOT NULL,
             status TEXT NOT NULL,
@@ -289,7 +296,7 @@ def init_db() -> None:
         );
 
         CREATE TABLE IF NOT EXISTS webhook_events (
-            id SERIAL PRIMARY KEY,
+            id INTEGER PRIMARY KEY,
             merchant_id INTEGER NOT NULL,
             event_id TEXT UNIQUE NOT NULL,
             payload TEXT NOT NULL,
@@ -297,7 +304,7 @@ def init_db() -> None:
         );
 
         CREATE TABLE IF NOT EXISTS audit_logs (
-            id SERIAL PRIMARY KEY,
+            id INTEGER PRIMARY KEY,
             merchant_id INTEGER NOT NULL,
             actor_id INTEGER,
             action_id INTEGER,
@@ -332,7 +339,7 @@ def init_db() -> None:
 # ============================================================
 
 def seed(
-    connection: psycopg.Connection,
+    connection: sqlite3.Connection,
     merchant_name: str,
     email: str,
     full_name: str,
@@ -345,20 +352,21 @@ def seed(
 
     if merchant_id is None:
 
-        row = connection.execute(
+        connection.execute(
             """
             INSERT INTO merchants
             (name, created_at)
-            VALUES (%s, %s)
-            RETURNING id
+            VALUES (?, ?)
             """,
             (
                 merchant_name,
                 created,
             ),
-        ).fetchone()
+        )
 
-        merchant_id = row["id"]
+        merchant_id = connection.execute(
+            "SELECT last_insert_rowid()"
+        ).fetchone()[0]
 
     if actor_id is None:
 
@@ -366,7 +374,7 @@ def seed(
             """
             SELECT id
             FROM users
-            WHERE merchant_id=%s
+            WHERE merchant_id=?
             ORDER BY id
             LIMIT 1
             """,
@@ -375,11 +383,11 @@ def seed(
 
         if existing:
 
-            actor_id = existing["id"]
+            actor_id = existing[0]
 
         else:
 
-            row = connection.execute(
+            connection.execute(
                 """
                 INSERT INTO users
                 (
@@ -389,8 +397,7 @@ def seed(
                     role,
                     password_hash
                 )
-                VALUES (%s, %s, %s, %s, %s)
-                RETURNING id
+                VALUES (?, ?, ?, ?, ?)
                 """,
                 (
                     merchant_id,
@@ -399,15 +406,17 @@ def seed(
                     "finance_admin",
                     hash_password(password),
                 ),
-            ).fetchone()
+            )
 
-            actor_id = row["id"]
+            actor_id = connection.execute(
+                "SELECT last_insert_rowid()"
+            ).fetchone()[0]
 
     if not connection.execute(
         """
         SELECT 1
         FROM policies
-        WHERE merchant_id=%s
+        WHERE merchant_id=?
         """,
         (merchant_id,),
     ).fetchone():
@@ -416,7 +425,7 @@ def seed(
             """
             INSERT INTO policies
             (merchant_id)
-            VALUES (%s)
+            VALUES (?)
             """,
             (merchant_id,),
         )
@@ -446,8 +455,8 @@ def seed(
             """
             SELECT 1
             FROM customers
-            WHERE merchant_id=%s
-              AND name=%s
+            WHERE merchant_id=?
+              AND name=?
             """,
             (
                 merchant_id,
@@ -463,7 +472,7 @@ def seed(
                     name,
                     email
                 )
-                VALUES (%s, %s, %s)
+                VALUES (?, ?, ?)
                 """,
                 (
                     merchant_id,
@@ -473,12 +482,12 @@ def seed(
             )
 
     customer_ids = [
-        row["id"]
+        row[0]
         for row in connection.execute(
             """
             SELECT id
             FROM customers
-            WHERE merchant_id=%s
+            WHERE merchant_id=?
             ORDER BY id
             """,
             (merchant_id,),
@@ -538,8 +547,8 @@ def seed(
             """
             SELECT 1
             FROM invoices
-            WHERE merchant_id=%s
-              AND invoice_number=%s
+            WHERE merchant_id=?
+              AND invoice_number=?
             """,
             (
                 merchant_id,
@@ -553,7 +562,7 @@ def seed(
             days=overdue
         )
 
-        row = connection.execute(
+        connection.execute(
             """
             INSERT INTO invoices
             (
@@ -569,8 +578,7 @@ def seed(
                 risk_tier,
                 predicted_delay_days
             )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-            RETURNING id
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 merchant_id,
@@ -585,9 +593,11 @@ def seed(
                 tier,
                 delay,
             ),
-        ).fetchone()
+        )
 
-        invoice_id = row["id"]
+        invoice_id = connection.execute(
+            "SELECT last_insert_rowid()"
+        ).fetchone()[0]
 
         action_data = {
             "Critical": (
@@ -635,7 +645,7 @@ def seed(
                 created_at,
                 updated_at
             )
-            VALUES (%s, %s, %s, %s, %s, %s, 'PASS', %s, %s, %s)
+            VALUES (?, ?, ?, ?, ?, ?, 'PASS', ?, ?, ?)
             """,
             (
                 merchant_id,
@@ -664,7 +674,7 @@ def seed(
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    init_db()
+
     yield
 
 
@@ -843,7 +853,7 @@ def current_user(
     authorization: str | None = Header(
         default=None
     ),
-) -> dict[str, Any]:
+) -> sqlite3.Row:
 
     if not authorization:
 
@@ -918,8 +928,8 @@ def current_user(
             FROM users u
             JOIN merchants m
                 ON m.id = u.merchant_id
-            WHERE u.id = %s
-              AND u.merchant_id = %s
+            WHERE u.id = ?
+              AND u.merchant_id = ?
               AND u.active = 1
             """,
             (
@@ -939,11 +949,11 @@ def current_user(
             detail="User account is inactive or no longer exists",
         )
 
-    return dict(user)
+    return user
 
 
 def user_json(
-    user: dict[str, Any],
+    user: sqlite3.Row,
 ) -> dict[str, Any]:
 
     return {
@@ -1024,7 +1034,7 @@ def risk_for_invoice(
 # ============================================================
 
 def create_invoice(
-    connection: psycopg.Connection,
+    connection: sqlite3.Connection,
     merchant_id: int,
     data: InvoiceInput,
     actor_id: int,
@@ -1035,8 +1045,8 @@ def create_invoice(
         """
         SELECT 1
         FROM invoices
-        WHERE merchant_id=%s
-          AND invoice_number=%s
+        WHERE merchant_id=?
+          AND invoice_number=?
         """,
         (
             merchant_id,
@@ -1060,8 +1070,8 @@ def create_invoice(
         """
         SELECT *
         FROM customers
-        WHERE merchant_id=%s
-          AND lower(name)=lower(%s)
+        WHERE merchant_id=?
+          AND lower(name)=lower(?)
         """,
         (
             merchant_id,
@@ -1076,8 +1086,8 @@ def create_invoice(
         connection.execute(
             """
             UPDATE customers
-            SET email=%s
-            WHERE id=%s
+            SET email=?
+            WHERE id=?
             """,
             (
                 str(data.customer_email),
@@ -1087,7 +1097,7 @@ def create_invoice(
 
     else:
 
-        row = connection.execute(
+        connection.execute(
             """
             INSERT INTO customers
             (
@@ -1095,17 +1105,18 @@ def create_invoice(
                 name,
                 email
             )
-            VALUES (%s, %s, %s)
-            RETURNING id
+            VALUES (?, ?, ?)
             """,
             (
                 merchant_id,
                 data.customer_name,
                 str(data.customer_email),
             ),
-        ).fetchone()
+        )
 
-        customer_id = row["id"]
+        customer_id = connection.execute(
+            "SELECT last_insert_rowid()"
+        ).fetchone()[0]
 
     tier, probability, delay = risk_for_invoice(
         data.amount,
@@ -1129,7 +1140,7 @@ def create_invoice(
 
         invoice_status = "open"
 
-    row = connection.execute(
+    connection.execute(
         """
         INSERT INTO invoices
         (
@@ -1146,8 +1157,7 @@ def create_invoice(
             risk_tier,
             predicted_delay_days
         )
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-        RETURNING id
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             merchant_id,
@@ -1163,9 +1173,11 @@ def create_invoice(
             tier,
             delay,
         ),
-    ).fetchone()
+    )
 
-    invoice_id = row["id"]
+    invoice_id = connection.execute(
+        "SELECT last_insert_rowid()"
+    ).fetchone()[0]
 
     action_type, reason, discount, confidence, action_status = {
         "Critical": (
@@ -1202,7 +1214,7 @@ def create_invoice(
         """
         SELECT *
         FROM policies
-        WHERE merchant_id=%s
+        WHERE merchant_id=?
         """,
         (merchant_id,),
     ).fetchone()
@@ -1220,7 +1232,7 @@ def create_invoice(
 
         action_status = "PENDING_APPROVAL"
 
-    row = connection.execute(
+    connection.execute(
         """
         INSERT INTO recovery_actions
         (
@@ -1235,8 +1247,7 @@ def create_invoice(
             created_at,
             updated_at
         )
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-        RETURNING id
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             merchant_id,
@@ -1250,9 +1261,11 @@ def create_invoice(
             now(),
             now(),
         ),
-    ).fetchone()
+    )
 
-    action_id = row["id"]
+    action_id = connection.execute(
+        "SELECT last_insert_rowid()"
+    ).fetchone()[0]
 
     audit(
         connection,
@@ -1276,7 +1289,7 @@ def create_invoice(
             FROM invoices i
             JOIN customers c
                 ON c.id = i.customer_id
-            WHERE i.id=%s
+            WHERE i.id=?
             """,
             (invoice_id,),
         ).fetchone()
@@ -1307,7 +1320,7 @@ def register(
             """
             SELECT 1
             FROM users
-            WHERE lower(email)=lower(%s)
+            WHERE lower(email)=lower(?)
             """,
             (email,),
         ).fetchone()
@@ -1319,25 +1332,26 @@ def register(
                 "An account with this email already exists",
             )
 
-        row = connection.execute(
+        connection.execute(
             """
             INSERT INTO merchants
             (
                 name,
                 created_at
             )
-            VALUES (%s, %s)
-            RETURNING id
+            VALUES (?, ?)
             """,
             (
                 merchant_name,
                 now(),
             ),
-        ).fetchone()
+        )
 
-        merchant_id = row["id"]
+        merchant_id = connection.execute(
+            "SELECT last_insert_rowid()"
+        ).fetchone()[0]
 
-        row = connection.execute(
+        connection.execute(
             """
             INSERT INTO users
             (
@@ -1347,8 +1361,7 @@ def register(
                 role,
                 password_hash
             )
-            VALUES (%s, %s, %s, 'finance_admin', %s)
-            RETURNING id
+            VALUES (?, ?, ?, 'finance_admin', ?)
             """,
             (
                 merchant_id,
@@ -1356,15 +1369,17 @@ def register(
                 full_name,
                 hash_password(data.password),
             ),
-        ).fetchone()
+        )
 
-        user_id = row["id"]
+        user_id = connection.execute(
+            "SELECT last_insert_rowid()"
+        ).fetchone()[0]
 
         connection.execute(
             """
             INSERT INTO policies
             (merchant_id)
-            VALUES (%s)
+            VALUES (?)
             """,
             (merchant_id,),
         )
@@ -1387,7 +1402,7 @@ def register(
             FROM users u
             JOIN merchants m
                 ON m.id = u.merchant_id
-            WHERE u.id=%s
+            WHERE u.id=?
             """,
             (user_id,),
         ).fetchone()
@@ -1438,7 +1453,7 @@ def login(
             FROM users u
             JOIN merchants m
                 ON m.id = u.merchant_id
-            WHERE lower(u.email)=lower(%s)
+            WHERE lower(u.email)=lower(?)
             """,
             (email,),
         ).fetchone()
@@ -1484,13 +1499,12 @@ def login(
 
 @app.get("/auth/me")
 def me(
-    user: dict[str, Any] = Depends(
+    user: sqlite3.Row = Depends(
         current_user
     ),
 ) -> dict[str, Any]:
 
     return user_json(user)
-
 
 
 # ============================================================
@@ -1499,7 +1513,7 @@ def me(
 
 @app.get("/dashboard")
 def dashboard(
-    user: dict[str, Any] = Depends(
+    user: sqlite3.Row = Depends(
         current_user
     ),
 ) -> dict[str, Any]:
@@ -1508,74 +1522,64 @@ def dashboard(
 
     merchant_id = user["merchant_id"]
 
-    total = float(
-        connection.execute(
-            """
-            SELECT
-                COALESCE(
-                    SUM(amount-paid_amount),
-                    0
-                ) AS value
-            FROM invoices
-            WHERE merchant_id=%s
-            """,
-            (merchant_id,),
-        ).fetchone()["value"]
-    )
+    total = connection.execute(
+        """
+        SELECT
+            COALESCE(
+                SUM(amount-paid_amount),
+                0
+            ) AS value
+        FROM invoices
+        WHERE merchant_id=?
+        """,
+        (merchant_id,),
+    ).fetchone()["value"]
 
-    recovered = float(
-        connection.execute(
-            """
-            SELECT
-                COALESCE(
-                    SUM(paid_amount),
-                    0
-                ) AS value
-            FROM invoices
-            WHERE merchant_id=%s
-            """,
-            (merchant_id,),
-        ).fetchone()["value"]
-    )
+    recovered = connection.execute(
+        """
+        SELECT
+            COALESCE(
+                SUM(paid_amount),
+                0
+            ) AS value
+        FROM invoices
+        WHERE merchant_id=?
+        """,
+        (merchant_id,),
+    ).fetchone()["value"]
 
-    at_risk = float(
-        connection.execute(
-            """
-            SELECT
-                COALESCE(
-                    SUM(amount-paid_amount),
-                    0
-                ) AS value
-            FROM invoices
-            WHERE merchant_id=%s
-              AND risk_tier IN ('Critical','High')
-            """,
-            (merchant_id,),
-        ).fetchone()["value"]
-    )
+    at_risk = connection.execute(
+        """
+        SELECT
+            COALESCE(
+                SUM(amount-paid_amount),
+                0
+            ) AS value
+        FROM invoices
+        WHERE merchant_id=?
+          AND risk_tier IN ('Critical','High')
+        """,
+        (merchant_id,),
+    ).fetchone()["value"]
 
-    promise_total = int(
-        connection.execute(
-            """
-            SELECT COUNT(*) AS c
-            FROM promises
-            WHERE merchant_id=%s
-            """,
-            (merchant_id,),
-        ).fetchone()["c"]
-    )
+    promise_total = connection.execute(
+        """
+        SELECT COUNT(*) c
+        FROM promises
+        WHERE merchant_id=?
+        """,
+        (merchant_id,),
+    ).fetchone()["c"]
 
-    promise_kept = int(
-        connection.execute(
-            """
-            SELECT COUNT(*) AS c
-            FROM promises
-            WHERE merchant_id=%s
-              AND status IN ('KEPT','PAID')
-            """,
-            (merchant_id,),
-        ).fetchone()["c"]
-    )
+    promise_kept = connection.execute(
+        """
+        SELECT COUNT(*) c
+        FROM promises
+        WHERE merchant_id=?
+          AND status IN ('KEPT','PAID')
+        """,
+        (merchant_id,),
+    ).fetchone()["c"]
 
     actions = connection.execute(
         """
@@ -1591,7 +1595,7 @@ def dashboard(
             ON i.id = a.invoice_id
         JOIN customers c
             ON c.id = i.customer_id
-        WHERE a.merchant_id=%s
+        WHERE a.merchant_id=?
         ORDER BY a.id DESC
         """,
         (merchant_id,),
@@ -1609,7 +1613,7 @@ def dashboard(
                 ) AS exposure,
                 COUNT(*) AS count
             FROM invoices
-            WHERE merchant_id=%s
+            WHERE merchant_id=?
             GROUP BY risk_tier
             """,
             (merchant_id,),
@@ -1620,7 +1624,7 @@ def dashboard(
         """
         SELECT *
         FROM policies
-        WHERE merchant_id=%s
+        WHERE merchant_id=?
         """,
         (merchant_id,),
     ).fetchone()
@@ -1702,7 +1706,7 @@ def dashboard(
 
 @app.get("/invoices")
 def invoices(
-    user: dict[str, Any] = Depends(
+    user: sqlite3.Row = Depends(
         current_user
     ),
     risk: str | None = Query(
@@ -1720,7 +1724,7 @@ def invoices(
         FROM invoices i
         JOIN customers c
             ON c.id=i.customer_id
-        WHERE i.merchant_id=%s
+        WHERE i.merchant_id=?
     """
 
     params: list[Any] = [
@@ -1730,7 +1734,7 @@ def invoices(
     if risk:
 
         sql += """
-            AND i.risk_tier=%s
+            AND i.risk_tier=?
         """
 
         params.append(risk)
@@ -1759,7 +1763,7 @@ def invoices(
 @app.get("/invoices/{invoice_id}/decision")
 def invoice_decision(
     invoice_id: int,
-    user: dict[str, Any] = Depends(
+    user: sqlite3.Row = Depends(
         current_user
     ),
 ) -> dict[str, Any]:
@@ -1777,8 +1781,8 @@ def invoice_decision(
         FROM invoices i
         JOIN customers c
             ON c.id=i.customer_id
-        WHERE i.id=%s
-          AND i.merchant_id=%s
+        WHERE i.id=?
+          AND i.merchant_id=?
         """,
         (
             invoice_id,
@@ -1799,8 +1803,8 @@ def invoice_decision(
         """
         SELECT *
         FROM invoices
-        WHERE merchant_id=%s
-          AND customer_id=%s
+        WHERE merchant_id=?
+          AND customer_id=?
         """,
         (
             merchant_id,
@@ -1812,7 +1816,7 @@ def invoice_decision(
         """
         SELECT *
         FROM policies
-        WHERE merchant_id=%s
+        WHERE merchant_id=?
         """,
         (merchant_id,),
     ).fetchone()
@@ -1820,13 +1824,13 @@ def invoice_decision(
     connection.close()
 
     outstanding = max(
-        0.0,
+        0,
         float(invoice["amount"])
         - float(invoice["paid_amount"]),
     )
 
     due = date.fromisoformat(
-        str(invoice["due_date"])[:10]
+        invoice["due_date"][:10]
     )
 
     overdue_days = max(
@@ -1850,7 +1854,7 @@ def invoice_decision(
     for item in customer_invoices:
 
         item_due = date.fromisoformat(
-            str(item["due_date"])[:10]
+            item["due_date"][:10]
         )
 
         if item["status"] not in (
@@ -2327,7 +2331,7 @@ def invoice_decision(
             "outstanding":
                 outstanding,
             "due_date":
-                str(invoice["due_date"]),
+                invoice["due_date"],
             "overdue_days":
                 overdue_days,
             "status":
@@ -2409,7 +2413,7 @@ def invoice_decision(
 @app.post("/invoices")
 def add_invoice(
     data: InvoiceInput,
-    user: dict[str, Any] = Depends(
+    user: sqlite3.Row = Depends(
         current_user
     ),
 ) -> dict[str, Any]:
@@ -2441,7 +2445,7 @@ def add_invoice(
 @app.post("/invoices/import")
 async def import_invoices(
     file: UploadFile = File(...),
-    user: dict[str, Any] = Depends(
+    user: sqlite3.Row = Depends(
         current_user
     ),
 ) -> dict[str, Any]:
@@ -2632,7 +2636,7 @@ async def import_invoices(
 @app.post("/recovery/{action_id}/approve")
 def approve(
     action_id: int,
-    user: dict[str, Any] = Depends(
+    user: sqlite3.Row = Depends(
         current_user
     ),
 ) -> dict[str, Any]:
@@ -2643,8 +2647,8 @@ def approve(
         """
         SELECT *
         FROM recovery_actions
-        WHERE id=%s
-          AND merchant_id=%s
+        WHERE id=?
+          AND merchant_id=?
         """,
         (
             action_id,
@@ -2675,8 +2679,8 @@ def approve(
         UPDATE recovery_actions
         SET
             status='APPROVED',
-            updated_at=%s
-        WHERE id=%s
+            updated_at=?
+        WHERE id=?
         """,
         (
             now(),
@@ -2699,7 +2703,7 @@ def approve(
         """
         SELECT *
         FROM recovery_actions
-        WHERE id=%s
+        WHERE id=?
         """,
         (action_id,),
     ).fetchone()
@@ -2716,7 +2720,7 @@ def approve(
 @app.post("/recovery/{action_id}/execute")
 def execute(
     action_id: int,
-    user: dict[str, Any] = Depends(
+    user: sqlite3.Row = Depends(
         current_user
     ),
 ) -> dict[str, Any]:
@@ -2727,8 +2731,8 @@ def execute(
         """
         SELECT *
         FROM recovery_actions
-        WHERE id=%s
-          AND merchant_id=%s
+        WHERE id=?
+          AND merchant_id=?
         """,
         (
             action_id,
@@ -2768,9 +2772,9 @@ def execute(
         UPDATE recovery_actions
         SET
             status='EXECUTED',
-            external_reference=%s,
-            updated_at=%s
-        WHERE id=%s
+            external_reference=?,
+            updated_at=?
+        WHERE id=?
         """,
         (
             reference,
@@ -2798,7 +2802,7 @@ def execute(
         """
         SELECT *
         FROM recovery_actions
-        WHERE id=%s
+        WHERE id=?
         """,
         (action_id,),
     ).fetchone()
@@ -2814,7 +2818,7 @@ def execute(
 
 @app.get("/policies")
 def get_policy(
-    user: dict[str, Any] = Depends(
+    user: sqlite3.Row = Depends(
         current_user
     ),
 ) -> dict[str, Any]:
@@ -2825,7 +2829,7 @@ def get_policy(
         """
         SELECT *
         FROM policies
-        WHERE merchant_id=%s
+        WHERE merchant_id=?
         """,
         (user["merchant_id"],),
     ).fetchone()
@@ -2845,7 +2849,7 @@ def get_policy(
 @app.put("/policies")
 def update_policy(
     data: PolicyInput,
-    user: dict[str, Any] = Depends(
+    user: sqlite3.Row = Depends(
         current_user
     ),
 ) -> dict[str, Any]:
@@ -2858,13 +2862,13 @@ def update_policy(
         """
         UPDATE policies
         SET
-            max_discount_percent=%s,
-            approval_threshold_percent=%s,
-            high_value_threshold=%s,
-            max_automated_reminders=%s,
-            early_payment_discounts=%s,
-            automated_reminders=%s
-        WHERE merchant_id=%s
+            max_discount_percent=?,
+            approval_threshold_percent=?,
+            high_value_threshold=?,
+            max_automated_reminders=?,
+            early_payment_discounts=?,
+            automated_reminders=?
+        WHERE merchant_id=?
         """,
         (
             values[
@@ -2904,7 +2908,7 @@ def update_policy(
         """
         SELECT *
         FROM policies
-        WHERE merchant_id=%s
+        WHERE merchant_id=?
         """,
         (user["merchant_id"],),
     ).fetchone()
@@ -2920,7 +2924,7 @@ def update_policy(
 
 @app.get("/promises")
 def promises(
-    user: dict[str, Any] = Depends(
+    user: sqlite3.Row = Depends(
         current_user
     ),
 ) -> list[dict[str, Any]]:
@@ -2940,7 +2944,7 @@ def promises(
                 ON i.id=p.invoice_id
             JOIN customers c
                 ON c.id=i.customer_id
-            WHERE p.merchant_id=%s
+            WHERE p.merchant_id=?
             ORDER BY p.promised_date
             """,
             (user["merchant_id"],),
@@ -2955,7 +2959,7 @@ def promises(
 @app.post("/promises")
 def create_promise(
     data: PromiseInput,
-    user: dict[str, Any] = Depends(
+    user: sqlite3.Row = Depends(
         current_user
     ),
 ) -> dict[str, Any]:
@@ -2966,8 +2970,8 @@ def create_promise(
         """
         SELECT *
         FROM invoices
-        WHERE id=%s
-          AND merchant_id=%s
+        WHERE id=?
+          AND merchant_id=?
         """,
         (
             data.invoice_id,
@@ -2985,9 +2989,9 @@ def create_promise(
         )
 
     outstanding = max(
-        0.0,
-        float(invoice["amount"])
-        - float(invoice["paid_amount"]),
+        0,
+        invoice["amount"]
+        - invoice["paid_amount"],
     )
 
     if data.committed_amount > outstanding:
@@ -2999,7 +3003,7 @@ def create_promise(
             "Promise amount cannot exceed the invoice outstanding amount",
         )
 
-    row = connection.execute(
+    connection.execute(
         """
         INSERT INTO promises
         (
@@ -3011,8 +3015,7 @@ def create_promise(
             status,
             created_at
         )
-        VALUES (%s, %s, %s, %s, %s, 'PENDING', %s)
-        RETURNING id
+        VALUES (?, ?, ?, ?, ?, 'PENDING', ?)
         """,
         (
             user["merchant_id"],
@@ -3022,9 +3025,11 @@ def create_promise(
             data.notes,
             now(),
         ),
-    ).fetchone()
+    )
 
-    promise_id = row["id"]
+    promise_id = connection.execute(
+        "SELECT last_insert_rowid()"
+    ).fetchone()[0]
 
     audit(
         connection,
@@ -3048,7 +3053,7 @@ def create_promise(
             ON i.id=p.invoice_id
         JOIN customers c
             ON c.id=i.customer_id
-        WHERE p.id=%s
+        WHERE p.id=?
         """,
         (promise_id,),
     ).fetchone()
@@ -3065,7 +3070,7 @@ def create_promise(
 @app.post("/webhooks/payment")
 def payment_webhook(
     data: WebhookInput,
-    user: dict[str, Any] = Depends(
+    user: sqlite3.Row = Depends(
         current_user
     ),
     x_flowx_signature: str | None = Header(
@@ -3098,7 +3103,7 @@ def payment_webhook(
         """
         SELECT 1
         FROM webhook_events
-        WHERE event_id=%s
+        WHERE event_id=?
         """,
         (data.event_id,),
     ).fetchone()
@@ -3118,8 +3123,8 @@ def payment_webhook(
         """
         SELECT *
         FROM invoices
-        WHERE id=%s
-          AND merchant_id=%s
+        WHERE id=?
+          AND merchant_id=?
         """,
         (
             data.invoice_id,
@@ -3137,14 +3142,14 @@ def payment_webhook(
         )
 
     paid = min(
-        float(invoice["amount"]),
-        float(invoice["paid_amount"])
-        + float(data.amount),
+        invoice["amount"],
+        invoice["paid_amount"]
+        + data.amount,
     )
 
     invoice_status = (
         "paid"
-        if paid >= float(invoice["amount"])
+        if paid >= invoice["amount"]
         else "partially_paid"
     )
 
@@ -3152,9 +3157,9 @@ def payment_webhook(
         """
         UPDATE invoices
         SET
-            paid_amount=%s,
-            status=%s
-        WHERE id=%s
+            paid_amount=?,
+            status=?
+        WHERE id=?
         """,
         (
             paid,
@@ -3169,8 +3174,8 @@ def payment_webhook(
             """
             UPDATE promises
             SET status='KEPT'
-            WHERE id=%s
-              AND merchant_id=%s
+            WHERE id=?
+              AND merchant_id=?
             """,
             (
                 data.promise_id,
@@ -3187,7 +3192,7 @@ def payment_webhook(
             payload,
             processed_at
         )
-        VALUES (%s, %s, %s, %s)
+        VALUES (?, ?, ?, ?)
         """,
         (
             user["merchant_id"],
@@ -3233,7 +3238,7 @@ def payment_webhook(
 
 @app.get("/audit-logs")
 def audit_logs(
-    user: dict[str, Any] = Depends(
+    user: sqlite3.Row = Depends(
         current_user
     ),
 ) -> list[dict[str, Any]]:
@@ -3246,7 +3251,7 @@ def audit_logs(
             """
             SELECT *
             FROM audit_logs
-            WHERE merchant_id=%s
+            WHERE merchant_id=?
             ORDER BY created_at DESC
             """,
             (user["merchant_id"],),
@@ -3264,7 +3269,7 @@ def audit_logs(
 
 @app.get("/intelligence")
 def intelligence(
-    user: dict[str, Any] = Depends(
+    user: sqlite3.Row = Depends(
         current_user
     ),
 ) -> dict[str, Any]:
@@ -3281,7 +3286,7 @@ def intelligence(
         FROM invoices i
         JOIN customers c
             ON c.id=i.customer_id
-        WHERE i.merchant_id=%s
+        WHERE i.merchant_id=?
         ORDER BY
             (i.amount-i.paid_amount) DESC
         """,
@@ -3292,7 +3297,7 @@ def intelligence(
         """
         SELECT *
         FROM recovery_actions
-        WHERE merchant_id=%s
+        WHERE merchant_id=?
         """,
         (merchant_id,),
     ).fetchall()
@@ -3301,7 +3306,7 @@ def intelligence(
         """
         SELECT *
         FROM promises
-        WHERE merchant_id=%s
+        WHERE merchant_id=?
         """,
         (merchant_id,),
     ).fetchall()
@@ -3318,8 +3323,8 @@ def intelligence(
 
         outstanding = max(
             0.0,
-            float(inv["amount"])
-            - float(inv["paid_amount"]),
+            inv["amount"]
+            - inv["paid_amount"],
         )
 
         if outstanding <= 0:
@@ -3330,7 +3335,7 @@ def intelligence(
             (
                 date.today()
                 - date.fromisoformat(
-                    str(inv["due_date"])[:10]
+                    inv["due_date"][:10]
                 )
             ).days,
         )
@@ -3398,7 +3403,7 @@ def intelligence(
 
     promise_leakage = round(
         sum(
-            float(p["committed_amount"])
+            p["committed_amount"]
             for p in promises_rows
             if p["status"]
             in (
@@ -3434,17 +3439,17 @@ def intelligence(
     discount_cost = round(
         sum(
             (
-                float(a["discount_percent"])
+                a["discount_percent"]
                 / 100
             )
             * next(
                 (
-                    float(i["amount"])
+                    i["amount"]
                     for i in invoices_rows
                     if i["id"]
                     == a["invoice_id"]
                 ),
-                0.0,
+                0,
             )
             for a in actions
         ),
@@ -3482,9 +3487,9 @@ def intelligence(
 
     exposure = sum(
         max(
-            0.0,
-            float(i["amount"])
-            - float(i["paid_amount"]),
+            0,
+            i["amount"]
+            - i["paid_amount"],
         )
         for i in invoices_rows
     )
@@ -3653,7 +3658,7 @@ def intelligence(
 @app.get("/customers/{customer_id}/fingerprint")
 def customer_fingerprint(
     customer_id: int,
-    user: dict[str, Any] = Depends(
+    user: sqlite3.Row = Depends(
         current_user
     ),
 ) -> dict[str, Any]:
@@ -3666,8 +3671,8 @@ def customer_fingerprint(
         """
         SELECT *
         FROM customers
-        WHERE id=%s
-          AND merchant_id=%s
+        WHERE id=?
+          AND merchant_id=?
         """,
         (
             customer_id,
@@ -3688,8 +3693,8 @@ def customer_fingerprint(
         """
         SELECT *
         FROM invoices
-        WHERE customer_id=%s
-          AND merchant_id=%s
+        WHERE customer_id=?
+          AND merchant_id=?
         """,
         (
             customer_id,
@@ -3701,11 +3706,11 @@ def customer_fingerprint(
         """
         SELECT *
         FROM promises
-        WHERE merchant_id=%s
+        WHERE merchant_id=?
           AND invoice_id IN (
               SELECT id
               FROM invoices
-              WHERE customer_id=%s
+              WHERE customer_id=?
           )
         """,
         (
@@ -3723,7 +3728,7 @@ def customer_fingerprint(
                 (
                     date.today()
                     - date.fromisoformat(
-                        str(i["due_date"])[:10]
+                        i["due_date"][:10]
                     )
                 ).days,
             )
@@ -3851,7 +3856,7 @@ def customer_fingerprint(
 @app.get("/recovery/{action_id}/simulate")
 def simulate_recovery(
     action_id: int,
-    user: dict[str, Any] = Depends(
+    user: sqlite3.Row = Depends(
         current_user
     ),
 ) -> dict[str, Any]:
@@ -3873,8 +3878,8 @@ def simulate_recovery(
             ON i.id=a.invoice_id
         JOIN customers c
             ON c.id=i.customer_id
-        WHERE a.id=%s
-          AND a.merchant_id=%s
+        WHERE a.id=?
+          AND a.merchant_id=?
         """,
         (
             action_id,
@@ -3892,9 +3897,9 @@ def simulate_recovery(
         )
 
     outstanding = max(
-        0.0,
-        float(action["amount"])
-        - float(action["paid_amount"]),
+        0,
+        action["amount"]
+        - action["paid_amount"],
     )
 
     risk = action["risk_tier"]
@@ -3996,7 +4001,7 @@ def simulate_recovery(
 
 @app.get("/analytics")
 def analytics(
-    user: dict[str, Any] = Depends(
+    user: sqlite3.Row = Depends(
         current_user
     ),
 ) -> dict[str, Any]:
@@ -4012,42 +4017,38 @@ def analytics(
                 SUM(amount) AS invoiced,
                 SUM(paid_amount) AS recovered
             FROM invoices
-            WHERE merchant_id=%s
+            WHERE merchant_id=?
             GROUP BY risk_tier
             """,
             (user["merchant_id"],),
         ).fetchall()
     ]
 
-    total = float(
-        connection.execute(
-            """
-            SELECT
-                COALESCE(
-                    SUM(amount),
-                    0
-                ) AS v
-            FROM invoices
-            WHERE merchant_id=%s
-            """,
-            (user["merchant_id"],),
-        ).fetchone()["v"]
-    )
+    total = connection.execute(
+        """
+        SELECT
+            COALESCE(
+                SUM(amount),
+                0
+            ) AS v
+        FROM invoices
+        WHERE merchant_id=?
+        """,
+        (user["merchant_id"],),
+    ).fetchone()["v"]
 
-    recovered = float(
-        connection.execute(
-            """
-            SELECT
-                COALESCE(
-                    SUM(paid_amount),
-                    0
-                ) AS v
-            FROM invoices
-            WHERE merchant_id=%s
-            """,
-            (user["merchant_id"],),
-        ).fetchone()["v"]
-    )
+    recovered = connection.execute(
+        """
+        SELECT
+            COALESCE(
+                SUM(paid_amount),
+                0
+            ) AS v
+        FROM invoices
+        WHERE merchant_id=?
+        """,
+        (user["merchant_id"],),
+    ).fetchone()["v"]
 
     connection.close()
 
@@ -4090,7 +4091,7 @@ def analytics(
 
 @app.post("/demo/run")
 def run_demo(
-    user: dict[str, Any] = Depends(
+    user: sqlite3.Row = Depends(
         current_user
     ),
 ) -> dict[str, Any]:
@@ -4105,7 +4106,7 @@ def run_demo(
         """
         SELECT *
         FROM recovery_actions
-        WHERE merchant_id=%s
+        WHERE merchant_id=?
           AND status='PENDING_APPROVAL'
         ORDER BY id
         LIMIT 1
@@ -4117,16 +4118,14 @@ def run_demo(
 
     if not action:
 
-        invoice_count = int(
-            connection.execute(
-                """
-                SELECT COUNT(*) AS c
-                FROM invoices
-                WHERE merchant_id=%s
-                """,
-                (merchant_id,),
-            ).fetchone()["c"]
-        )
+        invoice_count = connection.execute(
+            """
+            SELECT COUNT(*) c
+            FROM invoices
+            WHERE merchant_id=?
+            """,
+            (merchant_id,),
+        ).fetchone()["c"]
 
         if invoice_count == 0:
 
@@ -4146,7 +4145,7 @@ def run_demo(
             """
             SELECT *
             FROM recovery_actions
-            WHERE merchant_id=%s
+            WHERE merchant_id=?
               AND status='PENDING_APPROVAL'
             ORDER BY id
             LIMIT 1
@@ -4189,13 +4188,14 @@ def run_demo(
     }
 
 
+
 # ============================================================
 # RECOVERY ACTIONS
 # ============================================================
 
 @app.get("/recovery")
 def recovery_actions(
-    user: dict[str, Any] = Depends(
+    user: sqlite3.Row = Depends(
         current_user
     ),
 ) -> list[dict[str, Any]]:
@@ -4221,7 +4221,7 @@ def recovery_actions(
                 ON i.id = a.invoice_id
             JOIN customers c
                 ON c.id = i.customer_id
-            WHERE a.merchant_id = %s
+            WHERE a.merchant_id = ?
             ORDER BY a.created_at DESC
             """,
             (
