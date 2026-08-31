@@ -14,17 +14,30 @@ The goal is to help businesses improve cash flow, reduce collection effort, and 
 
 ---
 
-## Live Demo
+# Live Demo
 
 Try the deployed application:
 
 https://flowx-ai-receivables-recovery-optim.vercel.app/register
 
-The application includes user registration, authentication, dashboard analytics, invoice management, recovery recommendations, promise-to-pay tracking, and recovery simulation.
+The application includes:
+
+- User registration and authentication
+- Receivables dashboard
+- Invoice management
+- Payment risk analysis
+- Customer behavior analysis
+- Recovery recommendations
+- Recovery simulation
+- Promise-to-pay tracking
+- Approval-based recovery workflow
+- Analytics and cash intelligence
+- Audit logs
+- Multi-tenant merchant accounts
 
 ---
 
-# Problem
+# Problem Statement
 
 Businesses often have a significant amount of money tied up in unpaid or delayed invoices.
 
@@ -46,6 +59,24 @@ However, these systems often do not answer:
 As the number of customers and invoices increases, manually making these decisions becomes difficult and time-consuming.
 
 FLOWX addresses this problem by combining invoice data, payment behavior, risk analysis, and recovery strategies into a single platform.
+
+---
+
+# Solution
+
+FLOWX converts receivables data into actionable recovery decisions.
+
+Instead of simply showing that an invoice is overdue, FLOWX attempts to determine:
+
+1. Which invoices require attention
+2. The risk associated with each invoice
+3. The customer's historical payment behavior
+4. The factors contributing to the risk
+5. The recovery strategies that can be considered
+6. The expected recovery from each strategy
+7. Which strategy provides the best expected outcome
+
+This allows businesses to move from reactive collections to more intelligent and prioritized recovery.
 
 ---
 
@@ -129,7 +160,7 @@ The simulator compares:
 - Strategy confidence
 - Customer/invoice risk
 
-This helps users understand the potential impact of different recovery approaches.
+This helps users understand the potential impact of different recovery approaches before executing an action.
 
 ---
 
@@ -157,7 +188,7 @@ Recovery actions can follow a controlled workflow:
 3. Action is approved
 4. Action is executed
 
-This provides better control over automated recovery decisions.
+This provides better control over recovery decisions and prevents actions from being executed without the required approval.
 
 ---
 
@@ -172,6 +203,8 @@ The analytics section provides insights into:
 - DSO reduction
 - Promise performance
 - ROI-related metrics
+
+This helps businesses understand the financial impact of their recovery efforts.
 
 ---
 
@@ -200,7 +233,7 @@ Registering a new merchant creates:
 - Default policies
 - Tenant-specific data
 
-This prevents data from different businesses from being mixed.
+This allows different businesses to use the platform independently while keeping their data isolated.
 
 ---
 
@@ -225,11 +258,11 @@ This prevents data from different businesses from being mixed.
 
 The main difference is that FLOWX is designed to move from:
 
-**"Who has not paid?"**
+> "Who has not paid?"
 
 to:
 
-**"Who should we prioritize, why are they at risk, and what should we do next?"**
+> "Who should we prioritize, why are they at risk, and what should we do next?"
 
 ---
 
@@ -261,3 +294,94 @@ Recovery Execution
      |
      v
 Outcome & Analytics
+
+
+FLOWX/
+|
+├── app/
+│   ├── login/
+│   ├── register/
+│   ├── invoices/
+│   ├── recovery/
+│   ├── promises/
+│   ├── analytics/
+│   ├── intelligence/
+│   ├── audit-log/
+│   ├── settings/
+│   └── system-health/
+|
+├── components/
+│   └── Reusable UI components
+|
+├── lib/
+│   └── api.ts
+|
+├── backend/
+│   ├── app/
+│   │   ├── main.py
+│   │   └── supabase_schema.sql
+│   └── requirements.txt
+|
+├── proxy.ts
+├── package.json
+├── .env.example
+└── README.md
+
+##Technology Stack##
+Frontend
+Next.js
+React
+TypeScript
+Tailwind CSS
+Next.js Middleware / Proxy-based route protection
+
+##Backend##
+Python
+FastAPI
+Uvicorn
+PyJWT
+Pydantic
+
+##Database##
+PostgreSQL
+Supabase
+SQLite compatibility during migration/development
+
+##Authentication##
+JWT-based authentication
+Secure password authentication
+Protected API endpoints
+Tenant-aware authorization
+
+##Deployment##
+Vercel for frontend deployment
+Render for backend deployment
+Supabase PostgreSQL for persistent database storage
+
+
+POST   /auth/register
+POST   /auth/login
+
+GET    /dashboard
+
+GET    /invoices
+POST   /invoices
+POST   /invoices/import
+
+GET    /recovery
+POST   /recovery/{id}/approve
+POST   /recovery/{id}/execute
+GET    /recovery/{id}/simulate
+
+GET    /promises
+POST   /promises
+
+GET    /analytics
+GET    /intelligence
+
+GET    /audit-logs
+
+GET    /policies
+PUT    /policies
+
+POST   /demo/run
