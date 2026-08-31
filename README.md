@@ -1,24 +1,24 @@
 # FLOWX
 
-## AI-Powered Receivables Recovery and Optimization
+### AI-Powered Receivables Recovery and Optimization
 
 FLOWX is an AI-powered receivables recovery platform designed to help businesses identify payment risks, understand customer payment behavior, prioritize invoices, and choose the most appropriate recovery action.
 
 Instead of treating every overdue invoice the same way, FLOWX analyzes invoice and customer behavior to answer three key questions:
 
-- Who should be prioritized?
-- Why is the payment at risk?
-- What action should be taken next?
+- **Who** should be prioritized?
+- **Why** is the payment at risk?
+- **What** action should be taken next?
 
 The goal is to help businesses improve cash flow, reduce collection effort, and make data-driven recovery decisions.
 
 ---
 
-# Live Demo
+## Live Demo
 
 Try the deployed application:
 
-https://flowx-ai-receivables-recovery-optim.vercel.app/register
+**[flowx-ai-receivables-recovery-optim.vercel.app](https://flowx-ai-receivables-recovery-optim.vercel.app/register)**
 
 The application includes:
 
@@ -35,9 +35,11 @@ The application includes:
 - Audit logs
 - Multi-tenant merchant accounts
 
+> **Note:** The demo backend uses ephemeral storage. If newly registered accounts appear reset after a period of inactivity, please use the seeded demo credentials or register again.
+
 ---
 
-# Problem Statement
+## Problem Statement
 
 Businesses often have a significant amount of money tied up in unpaid or delayed invoices.
 
@@ -62,7 +64,7 @@ FLOWX addresses this problem by combining invoice data, payment behavior, risk a
 
 ---
 
-# Solution
+## Solution
 
 FLOWX converts receivables data into actionable recovery decisions.
 
@@ -80,9 +82,9 @@ This allows businesses to move from reactive collections to more intelligent and
 
 ---
 
-# Key Features
+## Key Features
 
-## 1. Intelligent Receivables Dashboard
+### 1. Intelligent Receivables Dashboard
 
 The dashboard provides an overview of the business receivables portfolio, including:
 
@@ -94,15 +96,9 @@ The dashboard provides an overview of the business receivables portfolio, includ
 - Recovery trends
 - Pending recovery actions
 
-This gives users a quick view of the overall collection situation.
+### 2. Invoice Risk Analysis
 
----
-
-## 2. Invoice Risk Analysis
-
-FLOWX analyzes individual invoices and assigns a risk tier.
-
-The system provides:
+FLOWX analyzes individual invoices and assigns a risk tier. The system provides:
 
 - Risk tier
 - Risk probability
@@ -111,11 +107,7 @@ The system provides:
 - Overdue days
 - Risk drivers
 
-This helps users identify invoices that require attention before they become larger collection problems.
-
----
-
-## 3. Customer Payment Behavior
+### 3. Customer Payment Behavior
 
 FLOWX analyzes historical customer behavior to provide insights such as:
 
@@ -125,119 +117,53 @@ FLOWX analyzes historical customer behavior to provide insights such as:
 - Promise-to-pay reliability
 - Customer payment patterns
 
-This allows recovery decisions to consider customer behavior instead of relying only on invoice status.
+### 4. Recovery Strategy Recommendation
 
----
-
-## 4. Recovery Strategy Recommendation
-
-For each recovery case, FLOWX can evaluate different strategies, such as:
+For each recovery case, FLOWX evaluates different strategies, such as:
 
 - Payment link reminder
 - Promise-to-pay
 - Escalation and commitment
 
-Each strategy can include:
+Each strategy can include expected recovery, expected recovery time, confidence score, discount information, and approval requirements. FLOWX then recommends a strategy based on the expected recovery outcome.
 
-- Expected recovery
-- Expected recovery time
-- Confidence score
-- Discount information
-- Approval requirements
+### 5. Recovery Simulation
 
-FLOWX then recommends a strategy based on the expected recovery outcome.
-
----
-
-## 5. Recovery Simulation
-
-Users can simulate different recovery strategies before taking action.
-
-The simulator compares:
+Users can simulate different recovery strategies before taking action. The simulator compares:
 
 - Expected recovery amount
 - Number of days
 - Strategy confidence
 - Customer/invoice risk
 
-This helps users understand the potential impact of different recovery approaches before executing an action.
+### 6. Promise-to-Pay Management
 
----
+FLOWX allows businesses to record and track customer payment commitments, including committed amount, promised payment date, notes, and promise status.
 
-## 6. Promise-to-Pay Management
+### 7. Approval-Based Recovery Workflow
 
-FLOWX allows businesses to record and track customer payment commitments.
-
-Users can manage:
-
-- Committed amount
-- Promised payment date
-- Notes
-- Promise status
-
-This helps businesses track whether customers follow through on their commitments.
-
----
-
-## 7. Approval-Based Recovery Workflow
-
-Recovery actions can follow a controlled workflow:
+Recovery actions follow a controlled workflow:
 
 1. Recovery action is generated
 2. Action is reviewed
 3. Action is approved
 4. Action is executed
 
-This provides better control over recovery decisions and prevents actions from being executed without the required approval.
+### 8. Analytics and Cash Intelligence
+
+The analytics section provides insights into recovery performance, recovered cash, risk-tier performance, recovery improvement, DSO reduction, promise performance, and ROI-related metrics.
+
+### 9. Audit Logs
+
+FLOWX maintains audit records for important system activities, including recovery approvals, recovery execution, payments, policy changes, and demo runs.
+
+### 10. Multi-Tenant User Management
+
+Each registered merchant gets an isolated workspace. Registering a new merchant creates a merchant account, a user account, default policies, and tenant-specific data — allowing different businesses to use the platform independently while keeping their data isolated.
 
 ---
 
-## 8. Analytics and Cash Intelligence
-
-The analytics section provides insights into:
-
-- Recovery performance
-- Recovered cash
-- Risk-tier performance
-- Recovery improvement
-- DSO reduction
-- Promise performance
-- ROI-related metrics
-
-This helps businesses understand the financial impact of their recovery efforts.
-
----
-
-## 9. Audit Logs
-
-FLOWX maintains audit records for important system activities, including:
-
-- Recovery approvals
-- Recovery execution
-- Payments
-- Policy changes
-- Demo runs
-
-This provides visibility into important actions performed within the system.
-
----
-
-## 10. Multi-Tenant User Management
-
-Each registered merchant gets an isolated workspace.
-
-Registering a new merchant creates:
-
-- A merchant account
-- A user account
-- Default policies
-- Tenant-specific data
-
-This allows different businesses to use the platform independently while keeping their data isolated.
-
----
-
-# FLOWX vs Traditional Receivables Systems
+## FLOWX vs Traditional Receivables Systems
 
 | Capability | Traditional Approach | FLOWX |
 |---|---|---|
@@ -266,9 +192,9 @@ to:
 
 ---
 
-# Application Workflow
+## Application Workflow
 
-
+```
 Invoice Data
      |
      v
@@ -294,10 +220,14 @@ Recovery Execution
      |
      v
 Outcome & Analytics
+```
 
+---
 
+## Project Structure
+
+```
 FLOWX/
-|
 ├── app/
 │   ├── login/
 │   ├── register/
@@ -309,56 +239,64 @@ FLOWX/
 │   ├── audit-log/
 │   ├── settings/
 │   └── system-health/
-|
+│
 ├── components/
 │   └── Reusable UI components
-|
+│
 ├── lib/
 │   └── api.ts
-|
+│
 ├── backend/
 │   ├── app/
 │   │   ├── main.py
 │   │   └── supabase_schema.sql
 │   └── requirements.txt
-|
+│
 ├── proxy.ts
 ├── package.json
 ├── .env.example
 └── README.md
+```
 
-##Technology Stack##
-Frontend
-Next.js
-React
-TypeScript
-Tailwind CSS
-Next.js Middleware / Proxy-based route protection
+---
 
-##Backend##
-Python
-FastAPI
-Uvicorn
-PyJWT
-Pydantic
+## Technology Stack
 
-##Database##
-PostgreSQL
-Supabase
-SQLite compatibility during migration/development
+**Frontend**
+- Next.js
+- React
+- TypeScript
+- Tailwind CSS
+- Next.js Middleware / Proxy-based route protection
 
-##Authentication##
-JWT-based authentication
-Secure password authentication
-Protected API endpoints
-Tenant-aware authorization
+**Backend**
+- Python
+- FastAPI
+- Uvicorn
+- PyJWT
+- Pydantic
 
-##Deployment##
-Vercel for frontend deployment
-Render for backend deployment
-Supabase PostgreSQL for persistent database storage
+**Database**
+- PostgreSQL
+- Supabase
+- SQLite compatibility during migration/development
 
+**Authentication**
+- JWT-based authentication
+- Secure password authentication
+- Protected API endpoints
+- Tenant-aware authorization
 
+**Deployment**
+- Vercel for frontend deployment
+- Render for backend deployment
+- Supabase PostgreSQL for persistent database storage
+
+---
+
+## API Reference
+
+```
 POST   /auth/register
 POST   /auth/login
 
@@ -385,3 +323,47 @@ GET    /policies
 PUT    /policies
 
 POST   /demo/run
+```
+
+---
+
+## Getting Started
+
+### Prerequisites
+
+- Node.js (LTS recommended)
+- Python 3.10+
+- A Supabase project (or local PostgreSQL/SQLite for development)
+
+### Frontend Setup
+
+```bash
+git clone https://github.com/<your-username>/FLOWX.git
+cd FLOWX
+npm install
+cp .env.example .env.local
+npm run dev
+```
+
+### Backend Setup
+
+```bash
+cd backend
+python -m venv venv
+source venv/bin/activate   # On Windows: venv\Scripts\activate
+pip install -r requirements.txt
+uvicorn app.main:app --reload
+```
+
+---
+
+## License
+
+This project is available for portfolio and demonstration purposes. Please reach out for licensing or collaboration inquiries.
+
+---
+
+## Author
+
+**Chaitanya**
+MERN Stack Developer | B.Tech IT, VIT Pune
