@@ -1,92 +1,263 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# FLOWX
 
-## Getting Started
+## AI-Powered Receivables Recovery and Optimization
 
-FLOWX
+FLOWX is an AI-powered receivables recovery platform designed to help businesses identify payment risks, understand customer payment behavior, prioritize invoices, and choose the most appropriate recovery action.
 
-FLOWX is a working local receivables recovery application. The project is now configured for a Supabase PostgreSQL database, with a SQLite compatibility fallback during the legacy SQL migration.
+Instead of treating every overdue invoice the same way, FLOWX analyzes invoice and customer behavior to answer three key questions:
 
-## Environment setup
+- Who should be prioritized?
+- Why is the payment at risk?
+- What action should be taken next?
 
-Copy the sample env files and replace the placeholder values with your own Supabase project credentials:
+The goal is to help businesses improve cash flow, reduce collection effort, and make data-driven recovery decisions.
 
-```powershell
-copy .env.example .env
-copy .env.example .env.local
-```
+---
 
-Required variables include:
+## Live Demo
 
-- `SUPABASE_URL`
-- `SUPABASE_ANON_KEY`
-- `SUPABASE_SERVICE_ROLE_KEY`
-- `DATABASE_URL`
-- `FLOWX_JWT_SECRET`
-- `CORS_ORIGINS`
+Try the deployed application:
 
-## Supabase database migration
+https://flowx-ai-receivables-recovery-optim.vercel.app/register
 
-Use the schema definition in `backend/app/supabase_schema.sql` to create the tables in your Supabase project. The app still contains legacy SQLite-specific SQL calls in `backend/app/main.py`, so the remaining step is a full SQL translation before the backend can operate exclusively against Postgres/Supabase.
+The application includes user registration, authentication, dashboard analytics, invoice management, recovery recommendations, promise-to-pay tracking, and recovery simulation.
 
-## Run locally
+---
 
-Install backend dependencies and start the API:
+# Problem
 
-```powershell
-python -m pip install -r backend/requirements.txt
-python -m uvicorn backend.app.main:app --reload --port 8000
-```
+Businesses often have a significant amount of money tied up in unpaid or delayed invoices.
 
-In a second terminal, start the client:
+Traditional receivables systems generally focus on:
 
-```powershell
-npm install
-npm run dev
-```
+- Listing overdue invoices
+- Sending payment reminders
+- Tracking outstanding amounts
+- Basic collection follow-ups
 
-Open `http://localhost:3000`. Demo login is automatic with `DEMO_MODE=true` and uses `jordan@acmereceivables.com` / `demo1234`.
+However, these systems often do not answer:
 
-The API docs are available at `http://localhost:8000/docs`.
+- Which customer is most likely to delay payment?
+- How serious is the payment risk?
+- What factors are contributing to the risk?
+- Which recovery strategy is most suitable?
+- How reliable has the customer's previous payment behavior been?
 
-## Working workflows
+As the number of customers and invoices increases, manually making these decisions becomes difficult and time-consuming.
 
-- Dashboard metrics and recovery actions are loaded from SQLite through `/dashboard`.
-- Approval and execution are separate API operations and are policy-gated.
-- Promise-to-pay creation and payment webhook processing are persisted.
-- Webhook event IDs are unique and duplicate events are ignored.
-- Audit records are written for approvals, execution, payments, policy changes, and demo runs.
-- Registering a new merchant creates an isolated tenant and default policy.
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+FLOWX addresses this problem by combining invoice data, payment behavior, risk analysis, and recovery strategies into a single platform.
 
-## Getting Started
+---
 
-First, run the development server:
+# Key Features
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+## 1. Intelligent Receivables Dashboard
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+The dashboard provides an overview of the business receivables portfolio, including:
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+- Total receivables
+- Cash recovered
+- At-risk amount
+- Promise-to-pay performance
+- Risk distribution
+- Recovery trends
+- Pending recovery actions
 
-## Learn More
+This gives users a quick view of the overall collection situation.
 
-To learn more about Next.js, take a look at the following resources:
+---
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## 2. Invoice Risk Analysis
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+FLOWX analyzes individual invoices and assigns a risk tier.
 
-## Deploy on Vercel
+The system provides:
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+- Risk tier
+- Risk probability
+- Predicted payment delay
+- Outstanding amount
+- Overdue days
+- Risk drivers
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+This helps users identify invoices that require attention before they become larger collection problems.
+
+---
+
+## 3. Customer Payment Behavior
+
+FLOWX analyzes historical customer behavior to provide insights such as:
+
+- Average payment delay
+- Late payment rate
+- Number of invoices
+- Promise-to-pay reliability
+- Customer payment patterns
+
+This allows recovery decisions to consider customer behavior instead of relying only on invoice status.
+
+---
+
+## 4. Recovery Strategy Recommendation
+
+For each recovery case, FLOWX can evaluate different strategies, such as:
+
+- Payment link reminder
+- Promise-to-pay
+- Escalation and commitment
+
+Each strategy can include:
+
+- Expected recovery
+- Expected recovery time
+- Confidence score
+- Discount information
+- Approval requirements
+
+FLOWX then recommends a strategy based on the expected recovery outcome.
+
+---
+
+## 5. Recovery Simulation
+
+Users can simulate different recovery strategies before taking action.
+
+The simulator compares:
+
+- Expected recovery amount
+- Number of days
+- Strategy confidence
+- Customer/invoice risk
+
+This helps users understand the potential impact of different recovery approaches.
+
+---
+
+## 6. Promise-to-Pay Management
+
+FLOWX allows businesses to record and track customer payment commitments.
+
+Users can manage:
+
+- Committed amount
+- Promised payment date
+- Notes
+- Promise status
+
+This helps businesses track whether customers follow through on their commitments.
+
+---
+
+## 7. Approval-Based Recovery Workflow
+
+Recovery actions can follow a controlled workflow:
+
+1. Recovery action is generated
+2. Action is reviewed
+3. Action is approved
+4. Action is executed
+
+This provides better control over automated recovery decisions.
+
+---
+
+## 8. Analytics and Cash Intelligence
+
+The analytics section provides insights into:
+
+- Recovery performance
+- Recovered cash
+- Risk-tier performance
+- Recovery improvement
+- DSO reduction
+- Promise performance
+- ROI-related metrics
+
+---
+
+## 9. Audit Logs
+
+FLOWX maintains audit records for important system activities, including:
+
+- Recovery approvals
+- Recovery execution
+- Payments
+- Policy changes
+- Demo runs
+
+This provides visibility into important actions performed within the system.
+
+---
+
+## 10. Multi-Tenant User Management
+
+Each registered merchant gets an isolated workspace.
+
+Registering a new merchant creates:
+
+- A merchant account
+- A user account
+- Default policies
+- Tenant-specific data
+
+This prevents data from different businesses from being mixed.
+
+---
+
+# FLOWX vs Traditional Receivables Systems
+
+| Capability | Traditional Approach | FLOWX |
+|---|---|---|
+| Invoice tracking | Yes | Yes |
+| Overdue invoice identification | Yes | Yes |
+| Payment reminders | Yes | Yes |
+| Payment risk analysis | Limited | Yes |
+| Customer behavior analysis | Limited | Yes |
+| Risk drivers | Usually unavailable | Yes |
+| Predicted payment delay | Usually unavailable | Yes |
+| Recovery strategy recommendation | Manual | Automated |
+| Recovery simulation | Usually unavailable | Yes |
+| Promise-to-pay tracking | Basic | Yes |
+| Approval-based recovery | Limited | Yes |
+| Recovery analytics | Basic | Advanced |
+| Audit trail | Varies | Yes |
+| Multi-tenant architecture | Varies | Yes |
+
+The main difference is that FLOWX is designed to move from:
+
+**"Who has not paid?"**
+
+to:
+
+**"Who should we prioritize, why are they at risk, and what should we do next?"**
+
+---
+
+# Application Workflow
+
+
+Invoice Data
+     |
+     v
+Risk Analysis
+     |
+     v
+Customer Behavior Analysis
+     |
+     v
+Risk Drivers
+     |
+     v
+Recovery Strategy Evaluation
+     |
+     v
+Recommended Action
+     |
+     v
+Approval
+     |
+     v
+Recovery Execution
+     |
+     v
+Outcome & Analytics
