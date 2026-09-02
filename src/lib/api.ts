@@ -160,6 +160,8 @@ export type NegotiationSimulation = {
     customer_name: string;
     amount: number;
     outstanding: number;
+    risk_tier?: string;
+    risk_probability?: number;
   };
 
   baseline: {
@@ -326,13 +328,17 @@ async function request<T>(
     );
   }
 
-  const response = await fetch(
-    `${API_URL}${path}`,
-    {
+  let response: Response;
+  try {
+    response = await fetch(`${API_URL}${path}`, {
       ...init,
       headers,
-    }
-  );
+    });
+  } catch {
+    throw new Error(
+      `Unable to reach FLOWX API at ${API_URL}. Check the backend URL and CORS settings.`
+    );
+  }
 
   /*
    * Unauthorized session.

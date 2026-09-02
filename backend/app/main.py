@@ -620,12 +620,11 @@ def seed(
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     connection = db()
-    if (
-        DEMO_MODE
-        and not connection.execute(
-            "SELECT 1 FROM merchants LIMIT 1"
-        ).fetchone()
-    ):
+    demo_user = connection.execute(
+        "SELECT id FROM users WHERE lower(email)=lower(?)",
+        ("jordan@acmereceivables.com",),
+    ).fetchone()
+    if DEMO_MODE and not demo_user:
         seed(
             connection,
             merchant_name="Acme Receivables",
@@ -633,6 +632,13 @@ async def lifespan(_: FastAPI):
             full_name="Jordan Davis",
             password="demo1234",
         )
+    elif DEMO_MODE:
+        connection.execute(
+            "UPDATE users SET password_hash=?, active=1 WHERE id=?",
+            (hash_password("demo1234"), demo_user["id"]),
+        )
+    if DEMO_MODE:
+        connection.commit()
     connection.close()
     yield
 
@@ -650,10 +656,8 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "https://flowx-ai-receivables-recovery-optim.vercel.app",
-        "http://localhost:3000",
-    ],
+    allow_origins=ALLOWED_ORIGINS,
+    allow_origin_regex=r"https://.*\.vercel\.app",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -2579,11 +2583,13 @@ def simulate_recovery(
                 i.due_date,
                 i.risk_tier,
                 i.risk_probability
-            FROM invoices i
+            FROM recovery_actions a
+            JOIN invoices i
+                ON i.id = a.invoice_id
             JOIN customers c
                 ON c.id = i.customer_id
-            WHERE i.id = ?
-              AND i.merchant_id = ?
+            WHERE a.id = ?
+              AND a.merchant_id = ?
             """,
             (id, user["merchant_id"]),
         ).fetchone()
@@ -2640,6 +2646,7 @@ def simulate_recovery(
                 "id": invoice_id,
                 "invoice_number": invoice_number,
                 "customer_name": customer_name,
+                "amount": float(amount),
                 "outstanding": outstanding,
                 "risk_tier": risk_tier,
                 "risk_probability": risk_probability,
@@ -2660,7 +2667,7 @@ def simulate_recovery(
             "negotiation": {
                 "strategy": "Early Payment Negotiation",
                 "discount_percent": discount_percent,
-                "payment_term_days": 15,
+                "payment_days": 15,
                 "expected_recovery": negotiated_recovery,
                 "expected_days": negotiated_days,
                 "confidence": confidence,

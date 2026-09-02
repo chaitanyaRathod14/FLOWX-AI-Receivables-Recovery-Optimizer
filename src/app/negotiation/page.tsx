@@ -12,7 +12,11 @@ import {
   WalletCards,
   AlertTriangle,
 } from "lucide-react";
-import { getRecoveryActions, simulateNegotiation } from "@/lib/api";
+import {
+  getRecoveryActions,
+  NegotiationSimulation,
+  simulateNegotiation,
+} from "@/lib/api";
 import AppShell from "@/components/AppShell";
 
 type Action = {
@@ -32,7 +36,7 @@ export default function NegotiationPage() {
   const [actions, setActions] = useState<Action[]>([]);
   const [selected, setSelected] = useState<Action | null>(null);
   const [simulation, setSimulation] =
-    useState<Record<string, unknown> | null>(null);
+    useState<NegotiationSimulation | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -67,17 +71,23 @@ export default function NegotiationPage() {
     }
   }
 
-  const invoiceAmount = selected?.invoice_amount || 0;
+  const invoiceAmount =
+    simulation?.invoice.outstanding || selected?.invoice_amount || 0;
 
-  const defaultRecovery = Math.round(invoiceAmount * 0.62);
-  const negotiatedRecovery = Math.round(invoiceAmount * 0.98);
+  const defaultRecovery = Math.round(
+    simulation?.baseline.expected_recovery ?? invoiceAmount * 0.62
+  );
+  const negotiatedRecovery = Math.round(
+    simulation?.negotiation.expected_recovery ?? invoiceAmount * 0.98
+  );
 
-  const defaultDays = 45;
-  const negotiatedDays = 15;
+  const defaultDays = simulation?.baseline.expected_days ?? 45;
+  const negotiatedDays = simulation?.negotiation.expected_days ?? 15;
 
-  const discount = 2;
+  const discount = simulation?.negotiation.discount_percent ?? 2;
   const discountCost = Math.round(
-    invoiceAmount * (discount / 100)
+    simulation?.recommendation.discount_cost ??
+      invoiceAmount * (discount / 100)
   );
 
   return (
@@ -228,15 +238,13 @@ export default function NegotiationPage() {
                       </span>
 
                       <h4>
-                        Offer {discount}% discount
-                        for payment within{" "}
-                        {negotiatedDays} days
+                        {simulation?.recommendation.action ||
+                          `Offer ${discount}% discount for payment within ${negotiatedDays} days`}
                       </h4>
 
                       <p>
-                        The customer&apos;s payment behavior
-                        indicates that a time-bound incentive
-                        can accelerate recovery.
+                        {simulation?.recommendation.reason ||
+                          "Run a simulation to evaluate the recommendation against customer behavior and policy limits."}
                       </p>
                     </div>
                   </div>
@@ -306,9 +314,8 @@ export default function NegotiationPage() {
                     <div>
                       <span>Risk confidence</span>
                       <strong>
-                        {Math.round(
-                          selected.confidence * 100
-                        )}
+                        {simulation?.negotiation.confidence ??
+                          Math.round(selected.confidence * 100)}
                         %
                       </strong>
                     </div>
@@ -362,10 +369,25 @@ export default function NegotiationPage() {
                       </div>
 
                       <p>
-                        FLOWX evaluated the proposed
-                        negotiation against the available
-                        recovery data and policy limits.
+                        FLOWX evaluated the proposed negotiation against
+                        the available recovery data and policy limits.
                       </p>
+                      <div className="impact-grid">
+                        <div>
+                          <span>Expected recovery</span>
+                          <strong>
+                            ₹{Math.round(simulation.negotiation.expected_recovery).toLocaleString("en-IN")}
+                          </strong>
+                        </div>
+                        <div>
+                          <span>Expected payment</span>
+                          <strong>{simulation.negotiation.expected_days} days</strong>
+                        </div>
+                        <div>
+                          <span>Approval</span>
+                          <strong>{simulation.guardrails.requires_approval ? "Required" : "Not required"}</strong>
+                        </div>
+                      </div>
                     </div>
                   )}
                 </>
