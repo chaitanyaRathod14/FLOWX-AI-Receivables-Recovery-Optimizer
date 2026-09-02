@@ -24,6 +24,8 @@ Required variables include:
 - `FLOWX_JWT_SECRET`
 - `CORS_ORIGINS`
 
+For Render deployments, set `DATABASE_URL` and `SUPABASE_DB_URL` to the Supabase **Session pooler** connection string from Dashboard > Connect. Use the pooler host (`*.pooler.supabase.com`) with port `5432` and `sslmode=require`; do not use the direct `db.<project-ref>.supabase.co` host, which can be IPv6-only.
+
 ## Supabase database migration
 
 Use the schema definition in `backend/app/supabase_schema.sql` to create the tables in your Supabase project. The app still contains legacy SQLite-specific SQL calls in `backend/app/main.py`, so the remaining step is a full SQL translation before the backend can operate exclusively against Postgres/Supabase.

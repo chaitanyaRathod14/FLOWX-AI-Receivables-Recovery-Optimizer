@@ -51,8 +51,10 @@ If you prefer setting up manually:
    | SUPABASE_URL | https://<project-ref>.supabase.co | Project URL from Supabase |
    | SUPABASE_ANON_KEY | <anon_key> | Browser-safe public key |
    | SUPABASE_SERVICE_ROLE_KEY | <service_role_key> | Server-side secret, keep private |
-   | DATABASE_URL | postgresql://postgres:<password>@db.<project-ref>.supabase.co:5432/postgres | Primary Postgres connection string |
-   | SUPABASE_DB_URL | postgresql://postgres:<password>@db.<project-ref>.supabase.co:5432/postgres | Kept consistent with DATABASE_URL |
+   | DATABASE_URL | `postgresql://postgres.<project-ref>:<password>@aws-0-<region>.pooler.supabase.com:5432/postgres?sslmode=require` | Supabase **session pooler** URL; required on Render because the direct `db.<project-ref>.supabase.co` host may be IPv6-only |
+   | SUPABASE_DB_URL | Same session pooler URL as `DATABASE_URL` | Kept consistent with `DATABASE_URL` |
+
+   > In Supabase, open **Connect** and copy the **Session pooler** connection string. Replace both Render variables with that value, including the `postgres.<project-ref>` username and `:5432` port. Do not use the direct connection string whose host starts with `db.`.
 
 5. Click **Create Web Service**.
 6. Wait 2–3 minutes for the build to finish.

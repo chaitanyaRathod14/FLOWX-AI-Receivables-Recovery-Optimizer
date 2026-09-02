@@ -1,18 +1,20 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { FormEvent, useState } from "react";
 import { ArrowRight, ShieldCheck } from "lucide-react";
 import { login, register } from "@/lib/api";
 
 export default function AuthForm({ mode }: { mode: "login" | "register" }) {
+  const router = useRouter();
   const isRegister = mode === "register";
   const [email, setEmail] = useState(""); const [password, setPassword] = useState("");
   const [fullName, setFullName] = useState(""); const [merchantName, setMerchantName] = useState("");
   const [error, setError] = useState(""); const [busy, setBusy] = useState(false);
   async function submit(event: FormEvent) {
     event.preventDefault(); setBusy(true); setError("");
-    try { if (isRegister) await register({ email, password, full_name: fullName, merchant_name: merchantName }); else await login(email, password); window.location.href = "/"; }
+    try { if (isRegister) await register({ email, password, full_name: fullName, merchant_name: merchantName }); else await login(email, password); router.replace("/"); }
     catch (reason) { setError(reason instanceof Error ? reason.message : "Unable to authenticate"); }
     finally { setBusy(false); }
   }

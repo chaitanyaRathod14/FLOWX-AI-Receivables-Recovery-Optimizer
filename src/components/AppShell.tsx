@@ -6,7 +6,7 @@ import { useEffect, useState } from "react";
 import { BarChart3, Bell, FileText, Gauge, LayoutDashboard, LifeBuoy, LogOut, ReceiptText, ShieldCheck, Sparkles, WalletCards } from "lucide-react";
 import { logout } from "@/lib/api";
 
-const workspace = [["Overview", "/", LayoutDashboard], ["Invoices & risk", "/invoices", ReceiptText], ["Recovery actions", "/recovery", Sparkles], ["Promises to pay", "/promises", WalletCards], ["Cash analytics", "/analytics", BarChart3], ["Cash intelligence", "/intelligence", Sparkles]] as const;
+const workspace = [["Overview", "/", LayoutDashboard], ["Invoices & risk", "/invoices", ReceiptText], ["Recovery actions", "/recovery", Sparkles], ["AI Negotiation", "/negotiation", Sparkles], ["Promises to pay", "/promises", WalletCards], ["Cash analytics", "/analytics", BarChart3], ["Cash intelligence", "/intelligence", Sparkles]] as const;
 const controls = [["Audit log", "/audit-log", FileText], ["Policies", "/settings/policies", ShieldCheck], ["System health", "/system-health", Gauge]] as const;
 
 export default function AppShell({ children }: { children: React.ReactNode }) {

@@ -109,6 +109,93 @@ export type DashboardData = {
 };
 
 /* =========================================================
+   NEGOTIATION TYPES
+   ========================================================= */
+
+export type NegotiationOffer = {
+  strategy: string;
+  title?: string;
+
+  discount_percent: number;
+
+  payment_days: number;
+
+  expected_recovery: number;
+
+  expected_days: number;
+
+  confidence: number;
+
+  recovery_probability?: number;
+
+  discount_cost?: number;
+
+  cash_acceleration?: number;
+
+  days_saved?: number;
+
+  requires_approval?: boolean;
+
+  reason?: string;
+
+  negotiation_message?: string;
+};
+
+export type NegotiationSimulation = {
+  invoice_id?: number;
+
+  invoice_number?: string;
+
+  customer_name?: string;
+
+  outstanding?: number;
+
+  current_expected_recovery?: number;
+
+  current_expected_days?: number;
+
+  recommended_strategy?: string;
+
+  recommended_offer?: NegotiationOffer;
+
+  offers?: NegotiationOffer[];
+
+  negotiation_reason?: string;
+
+  customer_behavior?: {
+    invoice_count?: number;
+    late_payment_rate?: number;
+    average_delay_days?: number;
+    promise_kept_rate?: number;
+  };
+
+  risk?: {
+    tier?: string;
+    probability?: number;
+    predicted_delay_days?: number;
+  };
+
+  cash_impact?: {
+    outstanding?: number;
+    recommended_expected_recovery?: number;
+    cash_acceleration?: number;
+    estimated_days_saved?: number;
+  };
+
+  policy?: {
+    max_discount_percent?: number;
+    approval_threshold_percent?: number;
+    high_value_threshold?: number;
+  };
+
+  requires_approval?: boolean;
+
+  message?: string;
+
+  [key: string]: unknown;
+};
+
+/* =========================================================
    SESSION HELPERS
    ========================================================= */
 
@@ -142,13 +229,6 @@ function setSession(
     JSON.stringify(user)
   );
 
-  /*
-   * This cookie is only used by Next.js proxy.ts
-   * to know that the browser has an authenticated session.
-   *
-   * Actual API authentication is still done using
-   * the JWT stored in localStorage.
-   */
   document.cookie =
     `${SESSION_COOKIE}=1; ` +
     `Max-Age=${60 * 60 * 24 * 7}; ` +
@@ -187,7 +267,8 @@ async function request<T>(
   );
 
   /*
-   * Do not set JSON content type for FormData.
+   * Do not manually set JSON content type
+   * for FormData requests.
    */
   if (!(init?.body instanceof FormData)) {
     headers.set(
@@ -197,7 +278,7 @@ async function request<T>(
   }
 
   /*
-   * Attach JWT to every authenticated API request.
+   * Attach JWT to authenticated requests.
    */
   if (token) {
     headers.set(
@@ -215,13 +296,7 @@ async function request<T>(
   );
 
   /*
-   * Backend rejected the JWT.
-   *
-   * This usually means:
-   * 1. Token expired
-   * 2. FLOWX_JWT_SECRET changed
-   * 3. Token is malformed
-   * 4. User was deleted/deactivated
+   * Unauthorized session.
    */
   if (
     response.status === 401 &&
@@ -237,6 +312,7 @@ async function request<T>(
       !currentPath.startsWith("/login") &&
       !currentPath.startsWith("/register")
     ) {
+
       window.location.replace(
         "/login?reason=session-expired"
       );
@@ -313,10 +389,6 @@ export async function login(
       }
     );
 
-  /*
-   * IMPORTANT:
-   * Save the JWT returned by FastAPI.
-   */
   setSession(
     response.access_token,
     response.user
@@ -351,31 +423,16 @@ export async function register(
         method: "POST",
 
         body: JSON.stringify({
-          email:
-            payload.email,
-
-          password:
-            payload.password,
-
-          full_name:
-            payload.full_name,
-
-          merchant_name:
-            payload.merchant_name,
-
-          industry:
-            payload.industry,
-
-          currency:
-            payload.currency,
+          email: payload.email,
+          password: payload.password,
+          full_name: payload.full_name,
+          merchant_name: payload.merchant_name,
+          industry: payload.industry,
+          currency: payload.currency,
         }),
       }
     );
 
-  /*
-   * Automatically create a session
-   * after successful registration.
-   */
   setSession(
     response.access_token,
     response.user
@@ -493,6 +550,7 @@ export async function importInvoices(
       !currentPath.startsWith("/login") &&
       !currentPath.startsWith("/register")
     ) {
+
       window.location.replace(
         "/login?reason=session-expired"
       );
@@ -575,17 +633,17 @@ export async function approveAction(
   );
 }
 
+/* =========================================================
+   RECOVERY SIMULATION
+   ========================================================= */
+
 export async function simulateRecovery(
   id: number
-): Promise<
-  Record<string, unknown>
-> {
+): Promise<NegotiationSimulation> {
 
   await ensureDemoSession();
 
-  return request<
-    Record<string, unknown>
-  >(
+  return request<NegotiationSimulation>(
     `/recovery/${id}/simulate`
   );
 }
@@ -704,25 +762,42 @@ export async function getIntelligence():
 
 export type RiskDriver = {
   factor: string;
+
   value: string;
+
   impact:
     | "HIGH"
     | "MEDIUM"
     | "LOW";
+
   explanation: string;
 };
 
 export type RecoveryStrategy = {
+
   name: string;
+
   type: string;
+
   expected_recovery: number;
+
   expected_days: number;
+
   confidence: number;
+
   available: boolean;
+
   reason: string;
+
   discount_percent?: number;
+
   discount_cost?: number;
+
   requires_approval?: boolean;
+
+  payment_days?: number;
+
+  negotiation_message?: string;
 };
 
 export type InvoiceDecision = {
@@ -886,5 +961,31 @@ export async function runDemo():
     {
       method: "POST",
     }
+  );
+}
+
+
+export type NegotiationScenario = {
+  strategy: string;
+  discount_percent: number;
+  payment_days: number;
+  expected_recovery: number;
+  expected_days: number;
+  recovery_probability: number;
+  cash_acceleration: number;
+  discount_cost: number;
+  confidence: number;
+  recommendation: string;
+  reason: string;
+  requires_approval: boolean;
+};
+
+export async function simulateNegotiation(
+  recoveryActionId: number
+): Promise<Record<string, unknown>> {
+  await ensureDemoSession();
+
+  return request<Record<string, unknown>>(
+    `/recovery/${recoveryActionId}/simulate`
   );
 }
