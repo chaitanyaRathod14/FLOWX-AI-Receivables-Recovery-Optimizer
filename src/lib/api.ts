@@ -117,45 +117,85 @@ export type NegotiationOffer = {
   title?: string;
 
   discount_percent: number;
-
   payment_days: number;
 
   expected_recovery: number;
-
   expected_days: number;
 
   confidence: number;
 
   recovery_probability?: number;
-
   discount_cost?: number;
-
   cash_acceleration?: number;
-
   days_saved?: number;
 
   requires_approval?: boolean;
 
   reason?: string;
-
   negotiation_message?: string;
 };
 
+/*
+ * IMPORTANT:
+ *
+ * These fields are explicitly typed because NegotiationCard.tsx
+ * accesses:
+ *
+ * simulation.invoice
+ * simulation.baseline
+ * simulation.negotiation
+ * simulation.recommendation
+ * simulation.guardrails
+ *
+ * Previously these properties were falling through to
+ * [key: string]&#58; unknown, which caused the Vercel error:
+ *
+ * "'invoice' is of type 'unknown'"
+ */
+
 export type NegotiationSimulation = {
+  invoice: {
+    id: number;
+    invoice_number: string;
+    customer_name: string;
+    amount: number;
+    outstanding: number;
+  };
+
+  baseline: {
+    strategy: string;
+    expected_recovery: number;
+    expected_days: number;
+  };
+
+  negotiation: NegotiationOffer;
+
+  recommendation: {
+    action: string;
+    reason: string;
+    cash_acceleration_days: number;
+    discount_cost: number;
+  };
+
+  guardrails: {
+    max_discount_percent: number;
+    requires_approval: boolean;
+  };
+
+  /*
+   * Optional fields allow this type to remain compatible with
+   * richer responses returned by the backend.
+   */
+
   invoice_id?: number;
-
   invoice_number?: string;
-
   customer_name?: string;
-
   outstanding?: number;
 
   current_expected_recovery?: number;
-
   current_expected_days?: number;
 
   recommended_strategy?: string;
-
   recommended_offer?: NegotiationOffer;
 
   offers?: NegotiationOffer[];
@@ -191,8 +231,6 @@ export type NegotiationSimulation = {
   requires_approval?: boolean;
 
   message?: string;
-
-  [key: string]: unknown;
 };
 
 /* =========================================================
@@ -259,7 +297,6 @@ async function request<T>(
   path: string,
   init?: RequestInit
 ): Promise<T> {
-
   const token = getToken();
 
   const headers = new Headers(
@@ -270,6 +307,7 @@ async function request<T>(
    * Do not manually set JSON content type
    * for FormData requests.
    */
+
   if (!(init?.body instanceof FormData)) {
     headers.set(
       "Content-Type",
@@ -280,6 +318,7 @@ async function request<T>(
   /*
    * Attach JWT to authenticated requests.
    */
+
   if (token) {
     headers.set(
       "Authorization",
@@ -298,11 +337,11 @@ async function request<T>(
   /*
    * Unauthorized session.
    */
+
   if (
     response.status === 401 &&
     typeof window !== "undefined"
   ) {
-
     clearSession();
 
     const currentPath =
@@ -312,7 +351,6 @@ async function request<T>(
       !currentPath.startsWith("/login") &&
       !currentPath.startsWith("/register")
     ) {
-
       window.location.replace(
         "/login?reason=session-expired"
       );
@@ -324,7 +362,6 @@ async function request<T>(
   }
 
   if (!response.ok) {
-
     const errorData =
       await response
         .json()
@@ -344,7 +381,6 @@ async function request<T>(
    ========================================================= */
 
 export async function ensureDemoSession(): Promise<void> {
-
   if (typeof window === "undefined") {
     throw new Error(
       "Authentication required"
@@ -371,7 +407,6 @@ export async function login(
   email: string,
   password: string
 ): Promise<User> {
-
   const response =
     await request<{
       access_token: string;
@@ -411,7 +446,6 @@ export async function register(
     currency?: string;
   }
 ): Promise<User> {
-
   const response =
     await request<{
       access_token: string;
@@ -456,7 +490,6 @@ export function logout(): void {
 export async function getInvoices(
   risk?: string
 ): Promise<Invoice[]> {
-
   await ensureDemoSession();
 
   const query = risk
@@ -480,7 +513,6 @@ export async function createInvoice(
     description: string;
   }
 ): Promise<Invoice> {
-
   await ensureDemoSession();
 
   return request<Invoice>(
@@ -505,7 +537,6 @@ export async function importInvoices(
   created: number;
   skipped: string[];
 }> {
-
   await ensureDemoSession();
 
   const token =
@@ -540,7 +571,6 @@ export async function importInvoices(
     response.status === 401 &&
     typeof window !== "undefined"
   ) {
-
     clearSession();
 
     const currentPath =
@@ -550,7 +580,6 @@ export async function importInvoices(
       !currentPath.startsWith("/login") &&
       !currentPath.startsWith("/register")
     ) {
-
       window.location.replace(
         "/login?reason=session-expired"
       );
@@ -562,7 +591,6 @@ export async function importInvoices(
   }
 
   if (!response.ok) {
-
     const errorData =
       await response
         .json()
@@ -583,7 +611,6 @@ export async function importInvoices(
 
 export async function getDashboard():
   Promise<DashboardData> {
-
   await ensureDemoSession();
 
   return request<DashboardData>(
@@ -597,7 +624,6 @@ export async function getDashboard():
 
 export async function getRecoveryActions():
   Promise<RecoveryAction[]> {
-
   await ensureDemoSession();
 
   return request<RecoveryAction[]>(
@@ -608,7 +634,6 @@ export async function getRecoveryActions():
 export async function executeAction(
   id: number
 ): Promise<void> {
-
   await ensureDemoSession();
 
   await request(
@@ -622,7 +647,6 @@ export async function executeAction(
 export async function approveAction(
   id: number
 ): Promise<void> {
-
   await ensureDemoSession();
 
   await request(
@@ -640,7 +664,6 @@ export async function approveAction(
 export async function simulateRecovery(
   id: number
 ): Promise<NegotiationSimulation> {
-
   await ensureDemoSession();
 
   return request<NegotiationSimulation>(
@@ -654,12 +677,9 @@ export async function simulateRecovery(
 
 export async function getPromises():
   Promise<PromiseRecord[]> {
-
   await ensureDemoSession();
 
-  return request<
-    PromiseRecord[]
-  >(
+  return request<PromiseRecord[]>(
     "/promises"
   );
 }
@@ -672,12 +692,9 @@ export async function createPromise(
     notes: string;
   }
 ): Promise<PromiseRecord> {
-
   await ensureDemoSession();
 
-  return request<
-    PromiseRecord
-  >(
+  return request<PromiseRecord>(
     "/promises",
     {
       method: "POST",
@@ -694,10 +711,7 @@ export async function createPromise(
    ========================================================= */
 
 export async function getAnalytics():
-  Promise<
-    Record<string, unknown>
-  > {
-
+  Promise<Record<string, unknown>> {
   await ensureDemoSession();
 
   return request<
@@ -712,7 +726,6 @@ export async function getAnalytics():
    ========================================================= */
 
 export type IntelligenceData = {
-
   cash_velocity_score: number;
 
   portfolio_health: {
@@ -746,12 +759,9 @@ export type IntelligenceData = {
 
 export async function getIntelligence():
   Promise<IntelligenceData> {
-
   await ensureDemoSession();
 
-  return request<
-    IntelligenceData
-  >(
+  return request<IntelligenceData>(
     "/intelligence"
   );
 }
@@ -774,7 +784,6 @@ export type RiskDriver = {
 };
 
 export type RecoveryStrategy = {
-
   name: string;
 
   type: string;
@@ -801,7 +810,6 @@ export type RecoveryStrategy = {
 };
 
 export type InvoiceDecision = {
-
   invoice: {
     id: number;
     invoice_number: string;
@@ -862,12 +870,9 @@ export type InvoiceDecision = {
 export async function getInvoiceDecision(
   invoiceId: number
 ): Promise<InvoiceDecision> {
-
   await ensureDemoSession();
 
-  return request<
-    InvoiceDecision
-  >(
+  return request<InvoiceDecision>(
     `/invoices/${invoiceId}/decision`
   );
 }
@@ -880,7 +885,6 @@ export async function getAuditLogs():
   Promise<
     Array<Record<string, unknown>>
   > {
-
   await ensureDemoSession();
 
   return request<
@@ -898,7 +902,6 @@ export async function getPolicy():
   Promise<
     Record<string, unknown>
   > {
-
   await ensureDemoSession();
 
   return request<
@@ -914,7 +917,6 @@ export async function updatePolicy(
 ): Promise<
   Record<string, unknown>
 > {
-
   await ensureDemoSession();
 
   return request<
@@ -939,7 +941,6 @@ export async function getHealth():
   Promise<
     Record<string, unknown>
   > {
-
   return request<
     Record<string, unknown>
   >(
@@ -953,7 +954,6 @@ export async function getHealth():
 
 export async function runDemo():
   Promise<void> {
-
   await ensureDemoSession();
 
   await request(
@@ -964,28 +964,42 @@ export async function runDemo():
   );
 }
 
+/* =========================================================
+   NEGOTIATION SIMULATION
+   ========================================================= */
 
 export type NegotiationScenario = {
   strategy: string;
+
   discount_percent: number;
+
   payment_days: number;
+
   expected_recovery: number;
+
   expected_days: number;
+
   recovery_probability: number;
+
   cash_acceleration: number;
+
   discount_cost: number;
+
   confidence: number;
+
   recommendation: string;
+
   reason: string;
+
   requires_approval: boolean;
 };
 
 export async function simulateNegotiation(
   recoveryActionId: number
-): Promise<Record<string, unknown>> {
+): Promise<NegotiationSimulation> {
   await ensureDemoSession();
 
-  return request<Record<string, unknown>>(
+  return request<NegotiationSimulation>(
     `/recovery/${recoveryActionId}/simulate`
   );
 }
