@@ -634,7 +634,7 @@ async def lifespan(_: FastAPI):
         )
     elif DEMO_MODE:
         connection.execute(
-            "UPDATE users SET password_hash=?, active=1 WHERE id=?",
+            "UPDATE users SET password_hash=?, active=TRUE WHERE id=?",
             (hash_password("demo1234"), demo_user["id"]),
         )
     if DEMO_MODE:
@@ -831,7 +831,7 @@ def current_user(
                     ON m.id = u.merchant_id
             WHERE u.id = ?
               AND u.merchant_id = ?
-              AND u.active = 1
+              AND u.active = TRUE
             """,
             (
                 int(user_id),
