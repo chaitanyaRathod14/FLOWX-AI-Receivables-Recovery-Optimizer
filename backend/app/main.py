@@ -1531,6 +1531,210 @@ def invoices(
 
 
 # ============================================================
+# INVOICE DECISION / CASH INTELLIGENCE
+# ============================================================
+
+@app.get("/invoices/{invoice_id}/decision")
+def invoice_decision(
+    invoice_id: int,
+    user: dict[str, Any] = Depends(current_user),
+) -> dict[str, Any]:
+    connection = db()
+
+    try:
+        invoice = connection.execute(
+            """
+            SELECT
+                i.*,
+                c.name AS customer_name
+            FROM invoices i
+            JOIN customers c
+                ON c.id=i.customer_id
+            WHERE i.id=?
+              AND i.merchant_id=?
+            """,
+            (invoice_id, user["merchant_id"]),
+        ).fetchone()
+
+        if not invoice:
+            raise HTTPException(404, "Invoice not found")
+
+        invoice_data = dict(invoice)
+        customer_invoices = [
+            dict(row)
+            for row in connection.execute(
+                """
+                SELECT amount, paid_amount, due_date
+                FROM invoices
+                WHERE customer_id=?
+                  AND merchant_id=?
+                """,
+                (
+                    invoice_data["customer_id"],
+                    user["merchant_id"],
+                ),
+            ).fetchall()
+        ]
+
+        overdue_days = max(
+            0,
+            (date.today() - date.fromisoformat(invoice_data["due_date"])).days,
+        )
+        outstanding = max(
+            0,
+            float(invoice_data["amount"])
+            - float(invoice_data["paid_amount"]),
+        )
+        delay_values = [
+            max(
+                0,
+                (date.today() - date.fromisoformat(row["due_date"])).days,
+            )
+            for row in customer_invoices
+            if float(row["paid_amount"]) < float(row["amount"])
+        ]
+        average_delay = round(
+            sum(delay_values) / len(delay_values),
+            1,
+        ) if delay_values else 0
+        late_payment_rate = round(
+            len(delay_values) / len(customer_invoices) * 100,
+            1,
+        ) if customer_invoices else 0
+
+        policy_row = connection.execute(
+            """
+            SELECT max_discount_percent,
+                   approval_threshold_percent,
+                   high_value_threshold,
+                   early_payment_discounts
+            FROM policies
+            WHERE merchant_id=?
+            """,
+            (user["merchant_id"],),
+        ).fetchone()
+        policy = dict(policy_row) if policy_row else {
+            "max_discount_percent": 5,
+            "approval_threshold_percent": 2,
+            "high_value_threshold": 10000,
+            "early_payment_discounts": True,
+        }
+
+        risk_probability = round(float(invoice_data["risk_probability"]))
+        discount_percent = min(
+            2.0,
+            float(policy["max_discount_percent"]),
+        )
+        discount_available = bool(policy["early_payment_discounts"])
+        discount_recovery = outstanding * (1 - discount_percent / 100)
+        reminder_recovery = outstanding * 0.82
+        escalation_recovery = outstanding * 0.68
+
+        strategies = [
+            {
+                "name": "Payment link reminder",
+                "type": "payment_link_reminder",
+                "expected_recovery": reminder_recovery,
+                "expected_days": 21,
+                "confidence": 88,
+                "available": True,
+                "reason": "A lightweight reminder is appropriate for a low-friction recovery path.",
+            },
+            {
+                "name": "Early payment discount",
+                "type": "early_payment_discount",
+                "expected_recovery": discount_recovery,
+                "expected_days": 12,
+                "confidence": 82,
+                "available": discount_available,
+                "reason": "A controlled incentive can accelerate recovery while staying within policy.",
+                "discount_percent": discount_percent,
+                "discount_cost": outstanding * discount_percent / 100,
+                "requires_approval": discount_percent >= float(policy["approval_threshold_percent"]),
+                "payment_days": 15,
+            },
+            {
+                "name": "Controlled escalation",
+                "type": "legal_escalation",
+                "expected_recovery": escalation_recovery,
+                "expected_days": 30,
+                "confidence": 68,
+                "available": True,
+                "reason": "Escalation preserves control when payment risk is elevated.",
+                "requires_approval": True,
+            },
+        ]
+
+        recommended_strategy = (
+            strategies[2]
+            if invoice_data["risk_tier"] == "Critical"
+            else strategies[1]
+            if invoice_data["risk_tier"] == "High" and discount_available
+            else strategies[0]
+        )
+
+        return {
+            "invoice": {
+                "id": invoice_data["id"],
+                "invoice_number": invoice_data["invoice_number"],
+                "customer_name": invoice_data["customer_name"],
+                "amount": float(invoice_data["amount"]),
+                "paid_amount": float(invoice_data["paid_amount"]),
+                "outstanding": outstanding,
+                "due_date": invoice_data["due_date"],
+                "overdue_days": overdue_days,
+                "status": invoice_data["status"],
+            },
+            "risk": {
+                "tier": invoice_data["risk_tier"],
+                "probability": risk_probability,
+                "predicted_delay_days": invoice_data["predicted_delay_days"],
+            },
+            "risk_drivers": [
+                {
+                    "factor": "Payment risk",
+                    "value": f"{risk_probability}% probability",
+                    "impact": "HIGH" if risk_probability >= 70 else "MEDIUM",
+                    "explanation": "The invoice risk score indicates a material chance of delayed payment.",
+                },
+                {
+                    "factor": "Current overdue exposure",
+                    "value": f"{overdue_days} days overdue",
+                    "impact": "HIGH" if overdue_days > 30 else "MEDIUM",
+                    "explanation": "Outstanding balances become harder to recover as the due date recedes.",
+                },
+            ],
+            "customer_behavior": {
+                "invoice_count": len(customer_invoices),
+                "late_payment_rate": late_payment_rate,
+                "average_delay_days": average_delay,
+            },
+            "strategies": strategies,
+            "recommended_strategy": recommended_strategy,
+            "cash_impact": {
+                "outstanding": outstanding,
+                "do_nothing_expected_recovery": outstanding * 0.68,
+                "recommended_expected_recovery": recommended_strategy["expected_recovery"],
+                "cash_acceleration": 45 - recommended_strategy["expected_days"],
+                "estimated_days_saved": 45 - recommended_strategy["expected_days"],
+            },
+            "forecast": {
+                "7_days": outstanding * 0.25,
+                "14_days": outstanding * 0.55,
+                "30_days": outstanding * 0.82,
+            },
+            "recommendation_reason": recommended_strategy["reason"],
+            "policy": {
+                "max_discount_percent": float(policy["max_discount_percent"]),
+                "approval_threshold_percent": float(policy["approval_threshold_percent"]),
+                "high_value_threshold": float(policy["high_value_threshold"]),
+            },
+        }
+    finally:
+        connection.close()
+
+
+# ============================================================
 # ADD INVOICE
 # ============================================================
 

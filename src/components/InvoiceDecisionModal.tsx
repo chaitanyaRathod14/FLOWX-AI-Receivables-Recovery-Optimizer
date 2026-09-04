@@ -30,18 +30,33 @@ export default function InvoiceDecisionModal({
 }) {
   const [data, setData] = useState<InvoiceDecision | null>(null);
   const [error, setError] = useState("");
+  const [retryKey, setRetryKey] = useState(0);
 
   useEffect(() => {
+    let active = true;
+
     getInvoiceDecision(invoiceId)
-      .then(setData)
+      .then((result) => {
+        if (active) {
+          setData(result);
+        }
+      })
       .catch((err) =>
-        setError(
-          err instanceof Error
-            ? err.message
-            : "Could not analyze invoice"
-        )
+        {
+          if (active) {
+            setError(
+              err instanceof Error
+                ? err.message
+                : "Could not analyze invoice"
+            );
+          }
+        }
       );
-  }, [invoiceId]);
+
+    return () => {
+      active = false;
+    };
+  }, [invoiceId, retryKey]);
 
   if (error) {
     return (
@@ -58,6 +73,18 @@ export default function InvoiceDecisionModal({
             <CircleAlert size={17} />
             {error}
           </div>
+
+          <button
+            className="decision-button"
+            onClick={() => {
+              setData(null);
+              setError("");
+              setRetryKey((value) => value + 1);
+            }}
+          >
+            <BrainCircuit size={13} />
+            Retry analysis
+          </button>
         </div>
       </div>
     );
